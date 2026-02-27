@@ -7,14 +7,12 @@
  * and communicates with Discord via the Discord RPC protocol.
  */
 
-const DiscordRPC = require('discord-rpc');
+const DiscordClient = require('../lib/DiscordClient');
 
 // Native messaging uses stdin/stdout for communication
 // We need to read/write messages in a specific format
 
-let currentClient = null;
-let currentActivity = null;
-let reconnectTimer = null;
+let discordClient = null;
 
 // Log to stderr (stdout is used for communication with browser)
 function log(...args) {
@@ -64,11 +62,11 @@ function readMessage() {
       }
     });
 
-    process.stdin.on('end', () => {
-      log('stdin ended');
-      cleanup();
-      process.exit(0);
-    });
+  process.stdin.on('end', async () => {
+    log('stdin ended');
+    await cleanup();
+    process.exit(0);
+  });
 
     process.stdin.on('error', (error) => {
       log('stdin error:', error);
@@ -93,99 +91,53 @@ function sendMessage(message) {
   }
 }
 
-// Connect to Discord
-async function connectDiscord(clientId) {
-  if (currentClient && currentClient.user) {
-    log('Already connected to Discord');
-    return currentClient;
+// Initialize Discord client with event handlers
+function initializeDiscordClient() {
+  if (discordClient) {
+    return discordClient;
   }
 
-  try {
-    log('Connecting to Discord with client ID:', clientId);
-    
-    // Close existing client if any
-    if (currentClient) {
-      try {
-        await currentClient.destroy();
-      } catch (e) {
-        // Ignore
-      }
+  discordClient = new DiscordClient({
+    onReady: (user) => {
+      sendMessage({ type: 'connected', user });
+    },
+    onDisconnected: () => {
+      // Discord client handles reconnection internally
+    },
+    onError: (error) => {
+      sendMessage({ type: 'error', error: error.message });
+    },
+    onActivitySet: () => {
+      sendMessage({ type: 'activitySet', success: true });
+    },
+    onActivityCleared: () => {
+      sendMessage({ type: 'activityCleared', success: true });
+    },
+    onLog: (level, ...args) => {
+      log(...args);
     }
+  });
 
-    const client = new DiscordRPC.Client({ transport: 'ipc' });
-    
-    client.on('ready', () => {
-      log('Discord RPC connected as:', client.user.username);
-      sendMessage({ type: 'connected', user: client.user });
-    });
-
-    client.on('disconnected', () => {
-      log('Discord RPC disconnected');
-      currentClient = null;
-      
-      // Try to reconnect after 5 seconds
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      reconnectTimer = setTimeout(() => {
-        if (currentActivity) {
-          connectDiscord(currentActivity.clientId);
-        }
-      }, 5000);
-    });
-
-    await client.login({ clientId });
-    currentClient = client;
-    
-    return client;
-  } catch (error) {
-    log('Failed to connect to Discord:', error.message);
-    currentClient = null;
-    throw error;
-  }
+  return discordClient;
 }
 
 // Set Discord activity
 async function setActivity(activityData) {
-  try {
-    const { clientId, activity } = activityData;
-    
-    if (!clientId) {
-      throw new Error('Client ID is required');
-    }
-
-    log('Setting activity:', activity);
-    currentActivity = activityData;
-
-    // Connect to Discord if not connected
-    const client = await connectDiscord(clientId);
-
-    // Set the activity
-    await client.setActivity(activity);
-    
-    log('Activity set successfully');
-    sendMessage({ type: 'activitySet', success: true });
-  } catch (error) {
-    log('Error setting activity:', error.message);
-    sendMessage({ type: 'error', error: error.message });
+  const client = initializeDiscordClient();
+  const result = await client.setActivity(activityData);
+  
+  if (!result.success) {
+    sendMessage({ type: 'error', error: result.error });
   }
 }
 
 // Clear Discord activity
 async function clearActivity() {
-  try {
-    log('Clearing activity');
-    currentActivity = null;
-
-    if (currentClient && currentClient.user) {
-      await currentClient.clearActivity();
-      log('Activity cleared successfully');
-    }
-    
-    sendMessage({ type: 'activityCleared', success: true });
-  } catch (error) {
-    log('Error clearing activity:', error.message);
-    sendMessage({ type: 'error', error: error.message });
+  const client = initializeDiscordClient();
+  const result = await client.clearActivity();
+  
+  if (!result.success) {
+    sendMessage({ type: 'error', error: result.error });
   }
 }
 
@@ -218,18 +170,14 @@ async function handleMessage(message) {
 }
 
 // Cleanup on exit
-function cleanup() {
+async function cleanup() {
   log('Cleaning up...');
   
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-  }
-  
-  if (currentClient) {
+  if (discordClient) {
     try {
-      currentClient.destroy();
+      await discordClient.destroy();
     } catch (error) {
-      log('Error destroying client:', error);
+      log('Error destroying Discord client:', error);
     }
   }
 }
@@ -244,15 +192,15 @@ async function main() {
   sendMessage({ type: 'connected' });
 
   // Handle process signals
-  process.on('SIGINT', () => {
+  process.on('SIGINT', async () => {
     log('Received SIGINT');
-    cleanup();
+    await cleanup();
     process.exit(0);
   });
 
-  process.on('SIGTERM', () => {
+  process.on('SIGTERM', async () => {
     log('Received SIGTERM');
-    cleanup();
+    await cleanup();
     process.exit(0);
   });
 
@@ -264,14 +212,14 @@ async function main() {
     }
   } catch (error) {
     log('Error in main loop:', error);
-    cleanup();
+    await cleanup();
     process.exit(1);
   }
 }
 
 // Start the native host
-main().catch((error) => {
+main().catch(async (error) => {
   log('Fatal error:', error);
-  cleanup();
+  await cleanup();
   process.exit(1);
 });
