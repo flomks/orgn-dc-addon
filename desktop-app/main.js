@@ -1,12 +1,10 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
-const DiscordRPC = require('discord-rpc');
+const DiscordClient = require('../lib/DiscordClient');
 
 let mainWindow = null;
 let tray = null;
-let currentClient = null;
-let currentActivity = null;
-let reconnectTimer = null;
+let discordClient = null;
 let logs = [];
 const MAX_LOGS = 1000;
 let extensionConnected = false;
@@ -31,115 +29,56 @@ function addLog(level, ...args) {
   console.log(`[${level}]`, ...args);
 }
 
-// Connect to Discord
-async function connectDiscord(clientId) {
-  if (currentClient && currentClient.user) {
-    addLog('INFO', 'Already connected to Discord');
-    return currentClient;
+// Initialize Discord client with event handlers
+function initializeDiscordClient() {
+  if (discordClient) {
+    return discordClient;
   }
 
-  try {
-    addLog('INFO', 'Connecting to Discord with client ID:', clientId);
-    
-    if (currentClient) {
-      try {
-        await currentClient.destroy();
-      } catch (e) {
-        // Ignore
+  discordClient = new DiscordClient({
+    onReady: (user) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discord-connected', user);
       }
-    }
-
-    const client = new DiscordRPC.Client({ transport: 'ipc' });
-    
-    client.on('ready', () => {
-      addLog('SUCCESS', `Discord RPC connected as: ${client.user.username}#${client.user.discriminator}`);
-      if (mainWindow) {
-        mainWindow.webContents.send('discord-connected', client.user);
-      }
-    });
-
-    client.on('disconnected', () => {
-      addLog('WARN', 'Discord RPC disconnected');
-      currentClient = null;
-      if (mainWindow) {
+    },
+    onDisconnected: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('discord-disconnected');
       }
-      
-      // Try to reconnect after 5 seconds
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
+    },
+    onError: (error) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discord-error', error.message);
       }
-      reconnectTimer = setTimeout(() => {
-        if (currentActivity) {
-          connectDiscord(currentActivity.clientId);
-        }
-      }, 5000);
-    });
-
-    await client.login({ clientId });
-    currentClient = client;
-    
-    return client;
-  } catch (error) {
-    addLog('ERROR', 'Failed to connect to Discord:', error.message);
-    currentClient = null;
-    if (mainWindow) {
-      mainWindow.webContents.send('discord-error', error.message);
+    },
+    onActivitySet: (activity) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('activity-set', activity);
+      }
+    },
+    onActivityCleared: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('activity-cleared');
+      }
+    },
+    onLog: (level, ...args) => {
+      addLog(level.toUpperCase(), ...args);
     }
-    throw error;
-  }
+  });
+
+  return discordClient;
 }
 
 // Set Discord activity
 async function setActivity(activityData) {
-  try {
-    const { clientId, activity } = activityData;
-    
-    if (!clientId) {
-      throw new Error('Client ID is required');
-    }
-
-    addLog('INFO', 'Setting activity:', JSON.stringify(activity));
-    currentActivity = activityData;
-
-    const client = await connectDiscord(clientId);
-    await client.setActivity(activity);
-    
-    addLog('SUCCESS', 'Activity set successfully');
-    if (mainWindow) {
-      mainWindow.webContents.send('activity-set', activity);
-    }
-    
-    return { success: true };
-  } catch (error) {
-    addLog('ERROR', 'Error setting activity:', error.message);
-    if (mainWindow) {
-      mainWindow.webContents.send('activity-error', error.message);
-    }
-    return { success: false, error: error.message };
-  }
+  const client = initializeDiscordClient();
+  return await client.setActivity(activityData);
 }
 
 // Clear Discord activity
 async function clearActivity() {
-  try {
-    addLog('INFO', 'Clearing activity');
-    currentActivity = null;
-
-    if (currentClient && currentClient.user) {
-      await currentClient.clearActivity();
-      addLog('SUCCESS', 'Activity cleared');
-    }
-    
-    if (mainWindow) {
-      mainWindow.webContents.send('activity-cleared');
-    }
-    
-    return { success: true };
-  } catch (error) {
-    addLog('ERROR', 'Error clearing activity:', error.message);
-    return { success: false, error: error.message };
-  }
+  const client = initializeDiscordClient();
+  return await client.clearActivity();
 }
 
 // Create main window
@@ -185,14 +124,18 @@ function createWindow() {
       mainWindow.webContents.send('log', log);
     });
     
+    // Initialize Discord client if needed and send status
+    const client = initializeDiscordClient();
+    const status = client.getStatus();
+    
     // Send connection status
-    if (currentClient && currentClient.user) {
-      mainWindow.webContents.send('discord-connected', currentClient.user);
+    if (status.connected) {
+      mainWindow.webContents.send('discord-connected', status.user);
     }
     
     // Send current activity
-    if (currentActivity) {
-      mainWindow.webContents.send('activity-set', currentActivity.activity);
+    if (status.activity) {
+      mainWindow.webContents.send('activity-set', status.activity.activity);
     }
   });
 }
@@ -286,10 +229,13 @@ ipcMain.handle('clear-activity', async () => {
 });
 
 ipcMain.handle('get-status', () => {
+  const client = initializeDiscordClient();
+  const status = client.getStatus();
+  
   return {
-    connected: !!(currentClient && currentClient.user),
-    user: currentClient ? currentClient.user : null,
-    activity: currentActivity,
+    connected: status.connected,
+    user: status.user,
+    activity: status.activity,
     extensionConnected: extensionConnected,
     lastExtensionPing: lastExtensionPing
   };
@@ -308,12 +254,8 @@ ipcMain.handle('get-extension-status', () => {
 });
 
 ipcMain.handle('test-connection', async (event, clientId) => {
-  try {
-    await connectDiscord(clientId || '1234567890123456789');
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
+  const client = initializeDiscordClient();
+  return await client.testConnection(clientId);
 });
 
 // Native Messaging Handler (for browser extension)
@@ -446,18 +388,14 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   app.isQuitting = true;
   
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-  }
-  
-  if (currentClient) {
+  if (discordClient) {
     try {
-      currentClient.destroy();
+      await discordClient.destroy();
     } catch (error) {
-      // Ignore
+      addLog('ERROR', 'Error destroying Discord client:', error.message);
     }
   }
 });
