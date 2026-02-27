@@ -1,0 +1,96 @@
+{
+  "youtube.com": {
+    "name": "YouTube",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Watching videos",
+    "state": "Entertainment",
+    "largeImageKey": "youtube",
+    "largeImageText": "YouTube",
+    "enabled": true
+  },
+  "spotify.com": {
+    "name": "Spotify",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Listening to music",
+    "state": "Relaxing",
+    "largeImageKey": "spotify",
+    "largeImageText": "Spotify",
+    "smallImageKey": "playing",
+    "smallImageText": "Playing",
+    "enabled": true
+  },
+  "docs.google.com": {
+    "name": "Google Docs",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Writing a document",
+    "state": "Being productive",
+    "largeImageKey": "docs",
+    "largeImageText": "Google Docs",
+    "enabled": true
+  },
+  "github.com": {
+    "name": "GitHub",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Coding",
+    "state": "Developer Mode",
+    "largeImageKey": "github",
+    "largeImageText": "GitHub",
+    "smallImageKey": "coding",
+    "smallImageText": "Active",
+    "enabled": true
+  },
+  "twitch.tv": {
+    "name": "Twitch",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Watching a stream",
+    "state": "Entertainment",
+    "largeImageKey": "twitch",
+    "largeImageText": "Twitch",
+    "enabled": true
+  },
+  "figma.com": {
+    "name": "Figma",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Designing",
+    "state": "Creative Work",
+    "largeImageKey": "figma",
+    "largeImageText": "Figma",
+    "enabled": true
+  },
+  "notion.so": {
+    "name": "Notion",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Taking notes",
+    "state": "Organizing",
+    "largeImageKey": "notion",
+    "largeImageText": "Notion",
+    "enabled": true
+  },
+  "twitter.com": {
+    "name": "Twitter",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Browsing timeline",
+    "state": "Social Media",
+    "largeImageKey": "twitter",
+    "largeImageText": "Twitter",
+    "enabled": true
+  },
+  "reddit.com": {
+    "name": "Reddit",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Browsing posts",
+    "state": "Social Media",
+    "largeImageKey": "reddit",
+    "largeImageText": "Reddit",
+    "enabled": true
+  },
+  "netflix.com": {
+    "name": "Netflix",
+    "clientId": "YOUR_DISCORD_APPLICATION_ID",
+    "details": "Watching a show",
+    "state": "Relaxing",
+    "largeImageKey": "netflix",
+    "largeImageText": "Netflix",
+    "enabled": true
+  }
+}

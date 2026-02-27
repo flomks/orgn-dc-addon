@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Rich Presence - Desktop App</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>Discord Rich Presence</h1>
+        <span class="version">v1.0.0</span>
+      </div>
+      <div class="header-right">
+        <div id="connectionStatus" class="status disconnected">
+          <span class="status-dot"></span>
+          <span class="status-text">Disconnected</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            Dashboard
+          </button>
+          <button class="nav-item" data-view="logs">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            Logs
+          </button>
+          <button class="nav-item" data-view="test">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+            Test
+          </button>
+        </nav>
+      </aside>
+
+      <!-- Content Area -->
+      <main class="content">
+        <!-- Dashboard View -->
+        <div id="dashboardView" class="view active">
+          <section class="card">
+            <h2>Discord Connection</h2>
+            <div id="discordInfo" class="discord-info">
+              <div class="info-row">
+                <span class="label">Status:</span>
+                <span id="discordStatus" class="value">Nicht verbunden</span>
+              </div>
+              <div class="info-row">
+                <span class="label">User:</span>
+                <span id="discordUser" class="value">—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>Current Activity</h2>
+            <div id="currentActivity" class="activity-display">
+              <p class="empty-state">Keine Activity aktiv</p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>Quick Actions</h2>
+            <div class="button-grid">
+              <button id="clearActivityBtn" class="btn btn-danger">
+                Clear Activity
+              </button>
+              <button id="testConnectionBtn" class="btn btn-primary">
+                Test Discord Connection
+              </button>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>Extension Communication</h2>
+            <div class="button-grid">
+              <button id="waitForExtensionBtn" class="btn btn-secondary">
+                Wait for Extension Ping
+              </button>
+              <button id="checkExtensionBtn" class="btn btn-secondary">
+                Check Extension Status
+              </button>
+            </div>
+            <div id="extensionStatus" class="info-box" style="margin-top: 12px; display: none;">
+              <p id="extensionStatusText"></p>
+            </div>
+          </section>
+        </div>
+
+        <!-- Logs View -->
+        <div id="logsView" class="view">
+          <div class="logs-header">
+            <h2>System Logs</h2>
+            <div class="logs-controls">
+              <label class="checkbox">
+                <input type="checkbox" id="autoScrollLogs" checked>
+                <span>Auto-scroll</span>
+              </label>
+              <button id="clearLogsBtn" class="btn btn-small">Clear Logs</button>
+            </div>
+          </div>
+          <div id="logsContainer" class="logs-container"></div>
+        </div>
+
+        <!-- Test View -->
+        <div id="testView" class="view">
+          <section class="card">
+            <h2>Test Discord Activity</h2>
+            <form id="testForm" class="form">
+              <div class="form-group">
+                <label for="testClientId">Discord Application ID</label>
+                <input type="text" id="testClientId" placeholder="1234567890123456789" required>
+                <small>Erstelle eine App auf discord.com/developers/applications</small>
+              </div>
+
+              <div class="form-group">
+                <label for="testDetails">Details</label>
+                <input type="text" id="testDetails" placeholder="Testing Rich Presence" value="Testing Rich Presence">
+              </div>
+
+              <div class="form-group">
+                <label for="testState">State</label>
+                <input type="text" id="testState" placeholder="Desktop App" value="Desktop App">
+              </div>
+
+              <div class="form-group">
+                <label for="testLargeImageKey">Large Image Key</label>
+                <input type="text" id="testLargeImageKey" placeholder="default" value="default">
+              </div>
+
+              <div class="form-group">
+                <label for="testLargeImageText">Large Image Text</label>
+                <input type="text" id="testLargeImageText" placeholder="Discord Rich Presence" value="Discord Rich Presence">
+              </div>
+
+              <div class="button-group">
+                <button type="submit" class="btn btn-primary">Set Test Activity</button>
+                <button type="button" id="clearTestActivityBtn" class="btn btn-secondary">Clear Activity</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="card">
+            <h3>Info</h3>
+            <div class="info-box">
+              <p>Verwende diesen Test-Bereich um deine Discord Application zu testen.</p>
+              <p>Die Activity wird in deinem Discord-Profil angezeigt.</p>
+              <p><strong>Hinweis:</strong> Discord Desktop App muss laufen!</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+      <div class="status-bar-left">
+        <span id="statusMessage">Ready</span>
+      </div>
+      <div class="status-bar-right">
+        <span id="logCount">0 logs</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

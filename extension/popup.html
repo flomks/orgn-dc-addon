@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Rich Presence</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 400px;
+      min-height: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #2c2f33;
+      color: #ffffff;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #7289da;
+    }
+
+    .section {
+      background: #23272a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .current-site {
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .current-site strong {
+      color: #7289da;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #b9bbbe;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    input[type="text"],
+    input[type="url"],
+    textarea {
+      width: 100%;
+      padding: 8px;
+      background: #2c2f33;
+      border: 1px solid #202225;
+      border-radius: 4px;
+      color: #ffffff;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #7289da;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .button {
+      width: 100%;
+      padding: 10px;
+      background: #7289da;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .button:hover {
+      background: #5b6eae;
+    }
+
+    .button.secondary {
+      background: #43b581;
+    }
+
+    .button.secondary:hover {
+      background: #369968;
+    }
+
+    .button.danger {
+      background: #f04747;
+    }
+
+    .button.danger:hover {
+      background: #d84040;
+    }
+
+    .button-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .status {
+      font-size: 12px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .status.success {
+      background: #43b58133;
+      color: #43b581;
+    }
+
+    .status.error {
+      background: #f0474733;
+      color: #f04747;
+    }
+
+    .status.info {
+      background: #7289da33;
+      color: #7289da;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .help-text {
+      font-size: 11px;
+      color: #72767d;
+      margin-top: 4px;
+    }
+
+    .collapsible {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .collapsible::after {
+      content: '▼';
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+
+    .collapsible.collapsed::after {
+      transform: rotate(-90deg);
+    }
+
+    .collapsible-content {
+      margin-top: 12px;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .app-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .app-item {
+      background: #2c2f33;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .app-item-info {
+      flex: 1;
+    }
+
+    .app-item-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .app-item-url {
+      font-size: 11px;
+      color: #72767d;
+    }
+
+    .app-item-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .icon-button {
+      background: transparent;
+      border: none;
+      color: #b9bbbe;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .icon-button:hover {
+      background: #2c2f33;
+    }
+
+    .icon-button.danger:hover {
+      color: #f04747;
+    }
+  </style>
+</head>
+<body>
+  <h1>Discord Rich Presence</h1>
+
+  <div id="statusMessage" class="status hidden"></div>
+
+  <div class="section">
+    <div class="current-site">
+      <strong>Aktuelle Seite:</strong>
+      <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Lädt...</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="collapsible" id="configCollapsible">
+      <label style="margin: 0;">App-Konfiguration</label>
+    </div>
+    <div class="collapsible-content" id="configContent">
+      <form id="appConfigForm">
+        <div class="form-group">
+          <label for="appName">App Name *</label>
+          <input type="text" id="appName" placeholder="z.B. YouTube" required>
+        </div>
+
+        <div class="form-group">
+          <label for="clientId">Discord Application ID *</label>
+          <input type="text" id="clientId" placeholder="z.B. 1234567890123456789" required>
+          <div class="help-text">Erstelle eine App auf discord.com/developers/applications</div>
+        </div>
+
+        <div class="form-group">
+          <label for="details">Details (optional)</label>
+          <input type="text" id="details" placeholder="z.B. Watching videos">
+        </div>
+
+        <div class="form-group">
+          <label for="state">State (optional)</label>
+          <input type="text" id="state" placeholder="z.B. Entertainment">
+        </div>
+
+        <div class="form-group">
+          <label for="largeImageKey">Large Image Key (optional)</label>
+          <input type="text" id="largeImageKey" placeholder="z.B. youtube_logo">
+          <div class="help-text">Asset-Name aus deiner Discord Application</div>
+        </div>
+
+        <div class="form-group">
+          <label for="largeImageText">Large Image Text (optional)</label>
+          <input type="text" id="largeImageText" placeholder="z.B. YouTube">
+        </div>
+
+        <div class="form-group">
+          <label for="smallImageKey">Small Image Key (optional)</label>
+          <input type="text" id="smallImageKey" placeholder="z.B. playing">
+        </div>
+
+        <div class="form-group">
+          <label for="smallImageText">Small Image Text (optional)</label>
+          <input type="text" id="smallImageText" placeholder="z.B. Active">
+        </div>
+
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="enabled" checked>
+            <label for="enabled" style="margin: 0;">Aktiviert</label>
+          </div>
+        </div>
+
+        <button type="submit" class="button secondary">Seite hinzufügen/aktualisieren</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="collapsible collapsed" id="appsCollapsible">
+      <label style="margin: 0;">Konfigurierte Apps</label>
+    </div>
+    <div class="collapsible-content hidden" id="appsContent">
+      <div id="appsList" class="app-list"></div>
+    </div>
+  </div>
+
+  <div class="button-group">
+    <button id="testConnectionBtn" class="button">Test Verbindung</button>
+    <button id="clearActivityBtn" class="button danger">Activity löschen</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "name": "discord-richpresence-webapp-bridge",
+  "version": "1.0.0",
+  "description": "Browser extension with native host for Discord Rich Presence in web applications",
+  "main": "desktop-app/main.js",
+  "scripts": {
+    "install-host": "node scripts/install-native-host.js",
+    "uninstall-host": "node scripts/uninstall-native-host.js",
+    "update-id": "node scripts/update-extension-id.js",
+    "check": "node scripts/check-installation.js",
+    "diagnose": "node scripts/diagnose.js",
+    "debug": "node scripts/debug-native-host.js",
+    "test": "node scripts/test-native-host.js",
+    "start-host": "node native-host/index.js",
+    "dev": "node native-host/index.js",
+    "app": "electron desktop-app/main.js",
+    "app:dev": "electron desktop-app/main.js --dev",
+    "use-app": "node scripts/switch-to-desktop-app.js",
+    "use-cli": "node scripts/switch-to-cli-host.js",
+    "fix-vscode": "node scripts/fix-windows-manifest.js",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "discord",
+    "rich-presence",
+    "browser-extension",
+    "native-messaging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "electron": "^28.3.3"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.9.1"
+  }
+}
