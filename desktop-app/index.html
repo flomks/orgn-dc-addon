@@ -111,12 +111,13 @@
 
         <!-- Logs View -->
         <div id="logsView" class="tab-content">
-          <div class="card">
+          <div class="card" style="flex: 1; display: flex; flex-direction: column; min-height: 0; margin-bottom: 0;">
             <div class="card-header">
               <h3>System Logs</h3>
               <div style="display: flex; gap: 12px; align-items: center;">
-                <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #a1a1aa; cursor: pointer;">
+                <label class="checkbox-label">
                   <input type="checkbox" id="autoScrollLogs" checked>
+                  <span class="checkbox-custom"></span>
                   Auto-scroll
                 </label>
                 <button id="clearLogsBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">Clear</button>
@@ -213,9 +214,10 @@
             <div class="card-body">
               <form id="appSettingsForm">
                 <div class="form-group">
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <label class="checkbox-label">
                     <input type="checkbox" id="quitOnClose">
-                    <span style="font-size: 14px; font-weight: 400;">Quit when closing window</span>
+                    <span class="checkbox-custom"></span>
+                    Quit when closing window
                   </label>
                   <div class="form-help">When disabled, the app minimizes to system tray instead of quitting.</div>
                 </div>
@@ -231,9 +233,10 @@
             <div class="card-body">
               <form id="autostartForm">
                 <div class="form-group">
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <label class="checkbox-label">
                     <input type="checkbox" id="autostartToggle">
-                    <span style="font-size: 14px; font-weight: 400;">Start with system</span>
+                    <span class="checkbox-custom"></span>
+                    Start with system
                   </label>
                   <div class="form-help">Launch the app automatically when you log in.</div>
                 </div>
