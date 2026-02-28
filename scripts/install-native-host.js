@@ -15,7 +15,9 @@ const platform = os.platform();
 const homeDir = os.homedir();
 
 // Get the absolute path to the native host executable
-const nativeHostPath = path.resolve(__dirname, '../native-host/index.js');
+// On Windows, use .bat wrapper to prevent VS Code from opening .js files
+const nativeHostFile = platform === 'win32' ? 'index.bat' : 'index.js';
+const nativeHostPath = path.resolve(__dirname, '../native-host', nativeHostFile);
 
 // Make sure the native host is executable
 if (platform !== 'win32') {
