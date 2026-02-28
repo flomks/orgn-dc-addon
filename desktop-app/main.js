@@ -333,8 +333,8 @@ function handleExtensionMessage(ws, message) {
       
     case 'setActivity': {
       const activityData = {
-        ...message.activity,
-        clientId: message.clientId || message.activity?.clientId || storedClientId
+        clientId: message.clientId || message.activity?.clientId || storedClientId,
+        activity: message.activity
       };
       
       setActivity(activityData).then(result => {
