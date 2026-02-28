@@ -160,6 +160,37 @@ npm run diagnose
 
 ---
 
+## Problem: "Extension context invalidated" Fehler
+
+### Symptome
+- Fehler in Browser Console: `Uncaught Error: Extension context invalidated`
+- Fehler erscheint in `content.js`
+- Extension funktioniert nach Neustart nicht sofort
+
+### Ursache
+Dieser Fehler tritt auf wenn:
+- Die Extension neu geladen wird (während Tabs noch offen sind)
+- Die Extension aktualisiert wird
+- Der Content Script versucht, mit dem Background Script zu kommunizieren, nachdem die Extension neu geladen wurde
+
+### Lösung
+
+**Der Fehler ist harmlos und wird automatisch behoben!**
+
+1. **Nichts tun:** Beim nächsten Seitenwechsel wird der Content Script automatisch neu geladen
+2. **Oder Seite neu laden:** Drücke `F5` oder `Ctrl+R` auf den betroffenen Tabs
+3. **Oder ignorieren:** Der Fehler hat keine Auswirkungen auf die Funktionalität
+
+**Technisch:** Die Extension prüft jetzt automatisch ob der Kontext noch gültig ist und stoppt die Observer wenn nötig.
+
+**Hinweis für Entwickler:**
+Wenn du die Extension während der Entwicklung häufig neu lädst:
+- Schließe alle Tabs die die Extension nutzen
+- Oder lade die Tabs nach dem Extension-Reload neu
+- Dies ist normal während der Entwicklung
+
+---
+
 ## Problem: Extension funktioniert nur manchmal
 
 ### Ursache
