@@ -162,6 +162,7 @@ body {
   align-items: center;
   padding: 0 24px;
   border-bottom: 1px solid var(--border-zinc-800);
+  gap: 12px;
 }
 
 .content-header h2 {
