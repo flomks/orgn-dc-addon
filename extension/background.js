@@ -1,421 +1,321 @@
-// Background Service Worker - WebSocket Communication with Desktop App
+// Background Service Worker - ORGN Discord Bridge
+// Focused on tracking ORGN CDE (cde.orgn.com) activity
+
 const WS_URL = 'ws://127.0.0.1:7890';
+const ORGN_DOMAINS = ['orgn.com', 'cde.orgn.com'];
+const KEEPALIVE_ALARM = 'keepalive';
+const KEEPALIVE_INTERVAL = 0.4; // minutes (~24 seconds, under Chrome's 30s limit)
+
+let ws = null;
+let desktopAppConnected = false;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+
+// Persistent session start time - survives page switches within ORGN
+let orgnSessionStart = null;
+let lastOrgnState = null;
+
+// ── Service Worker Keep-Alive ────────────────────────────────────
+// Chrome kills service workers after ~30s of inactivity.
+// An alarm fires periodically to keep it alive and check the WebSocket.
+
+chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: KEEPALIVE_INTERVAL });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === KEEPALIVE_ALARM) {
+    // Reconnect if needed
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectToDesktopApp();
+    } else {
+      // Ping to keep connection alive
+      try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) { /* ignore */ }
+    }
+    // Re-check the active tab
+    checkActiveTab();
+  }
+});
+
+// ── WebSocket Connection ─────────────────────────────────────────
+
+function connectToDesktopApp() {
+  if (ws && ws.readyState <= WebSocket.OPEN) return;
+
+  try {
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      console.log('[ORGN] Connected to desktop app');
+      desktopAppConnected = true;
+      reconnectAttempts = 0;
+      setBadge('', '#22c55e');
+      checkActiveTab();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'error') console.warn('[ORGN] Desktop error:', msg.error);
+      } catch (e) { /* ignore */ }
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      desktopAppConnected = false;
+      setBadge('!', '#ef4444');
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      // onclose fires after this
+    };
+  } catch (e) {
+    ws = null;
+    desktopAppConnected = false;
+    scheduleReconnect();
+  }
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  const delay = Math.min(3000 * Math.pow(2, reconnectAttempts), 30000);
+  reconnectTimer = setTimeout(() => {
+    reconnectAttempts++;
+    connectToDesktopApp();
+  }, delay);
+}
+
+function send(message) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  try {
+    ws.send(JSON.stringify(message));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ── ORGN Page Detection ──────────────────────────────────────────
+
+function isOrgnDomain(hostname) {
+  return ORGN_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+}
 
 /**
- * Background service that communicates with the ORGN Discord Bridge desktop app
- * via WebSocket. The desktop app must be running for the extension to work.
+ * Parse an ORGN CDE page title and URL into structured activity data.
+ *
+ * Title patterns observed:
+ *   "fixes extension - Trial · Orgn CDE"     -> Trial view
+ *   "orgn-dc-addon · Orgn CDE"               -> Project overview
+ *   "Projects · Orgn CDE"                     -> Projects list
+ *   "Orgn CDE"                                -> Dashboard / home
+ *
+ * URL patterns:
+ *   /projects/<uuid>                          -> Project page
+ *   /trials/<uuid> or similar                 -> Trial page
  */
-class BackgroundService {
-  constructor() {
-    this.currentTab = null;
-    this.currentActivity = null;
-    this.ws = null;
-    this.reconnectTimer = null;
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = -1; // Unlimited - keep trying forever
-    this.baseReconnectDelay = 3000;
-    this.desktopAppConnected = false;
-    
-    this.initializeEventListeners();
-    this.connectToDesktopApp();
+function parseOrgnPage(title, url) {
+  const result = {
+    appName: 'ORGN CDE',
+    details: '',
+    state: '',
+    project: null,
+    context: null
+  };
+
+  if (!title) return result;
+
+  // Remove the " · Orgn CDE" suffix
+  const cleanTitle = title.replace(/\s*·\s*Orgn CDE\s*$/i, '').trim();
+
+  if (!cleanTitle || cleanTitle.toLowerCase() === 'orgn cde') {
+    // Dashboard / home
+    result.details = 'Dashboard';
+    result.state = 'Browsing';
+    return result;
   }
 
-  /**
-   * Initialize all event listeners
-   */
-  initializeEventListeners() {
-    // Tab activation listener
-    chrome.tabs?.onActivated?.addListener(async (activeInfo) => {
-      try {
-        const tab = await chrome.tabs.get(activeInfo.tabId);
-        await this.updateActivity(tab);
-      } catch (error) {
-        console.warn('[Background] Error handling tab activation:', error);
-      }
-    });
-
-    // Tab update listener
-    chrome.tabs?.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
-      try {
-        if (changeInfo.status === 'complete' && tab.active) {
-          await this.updateActivity(tab);
-        }
-      } catch (error) {
-        console.warn('[Background] Error handling tab update:', error);
-      }
-    });
-
-    // Runtime message listener (from popup)
-    chrome.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
-      this.handleRuntimeMessage(message, sender, sendResponse);
-      return true;
-    });
+  // Check for Trial pattern: "name - Trial"
+  const trialMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*Trial$/i);
+  if (trialMatch) {
+    result.details = trialMatch[1].trim();
+    result.state = 'Working on Trial';
+    result.context = 'trial';
+    return result;
   }
 
-  /**
-   * Connect to the desktop app via WebSocket
-   */
-  connectToDesktopApp() {
-    if (this.ws && this.ws.readyState <= 1) {
-      return; // Already connected or connecting
-    }
-
-    console.log('[Background] Connecting to desktop app...');
-    
-    try {
-      this.ws = new WebSocket(WS_URL);
-      
-      this.ws.onopen = () => {
-        console.log('[Background] Connected to desktop app');
-        this.desktopAppConnected = true;
-        this.reconnectAttempts = 0;
-        
-        // Update badge to show connected state
-        this.setGlobalBadge('', '#43b581');
-        
-        // Check current tab and set activity if needed
-        this.refreshCurrentTab();
-      };
-      
-      this.ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this.handleDesktopMessage(message);
-        } catch (error) {
-          console.error('[Background] Failed to parse message:', error);
-        }
-      };
-      
-      this.ws.onclose = () => {
-        console.log('[Background] Disconnected from desktop app');
-        this.ws = null;
-        this.desktopAppConnected = false;
-        
-        // Update badge to show disconnected state
-        this.setGlobalBadge('!', '#f04747');
-        
-        this.scheduleReconnect();
-      };
-      
-      this.ws.onerror = (error) => {
-        console.warn('[Background] WebSocket error');
-        // onclose will fire after this, which handles reconnection
-      };
-      
-    } catch (error) {
-      console.error('[Background] Failed to create WebSocket:', error);
-      this.ws = null;
-      this.desktopAppConnected = false;
-      this.scheduleReconnect();
-    }
+  // Check for other patterns with separator: "name - Type"
+  const separatorMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*(.+)$/);
+  if (separatorMatch) {
+    result.details = separatorMatch[1].trim();
+    result.state = separatorMatch[2].trim();
+    return result;
   }
 
-  /**
-   * Handle messages from the desktop app
-   */
-  handleDesktopMessage(message) {
-    switch (message.type) {
-      case 'welcome':
-        console.log('[Background] Desktop app welcome:', 
-          message.discordConnected ? 'Discord connected' : 'Discord not connected');
-        break;
-      case 'pong':
-        console.log('[Background] Pong received');
-        break;
-      case 'activitySet':
-        console.log('[Background] Activity set successfully');
-        break;
-      case 'activityCleared':
-        console.log('[Background] Activity cleared');
-        break;
-      case 'discordConnected':
-        console.log('[Background] Discord connected:', message.user?.username);
-        break;
-      case 'discordDisconnected':
-        console.log('[Background] Discord disconnected');
-        break;
-      case 'error':
-        console.error('[Background] Desktop app error:', message.error);
-        break;
-      default:
-        console.log('[Background] Unknown message:', message.type);
+  // Check URL for project page
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.pathname.includes('/projects/')) {
+      result.details = cleanTitle;
+      result.state = 'Viewing Project';
+      result.context = 'project';
+      result.project = cleanTitle;
+      return result;
     }
+  } catch (e) { /* ignore */ }
+
+  // Simple title like "Projects" or a project name
+  if (cleanTitle.toLowerCase() === 'projects') {
+    result.details = 'Projects';
+    result.state = 'Browsing';
+  } else {
+    // Likely a project name or other page
+    result.details = cleanTitle;
+    result.state = 'Browsing';
   }
 
-  /**
-   * Schedule reconnection with exponential backoff
-   */
-  scheduleReconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
+  return result;
+}
 
-    // Exponential backoff: 3s, 6s, 12s, max 30s, then keep retrying at 30s
-    const delay = Math.min(
-      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      30000
-    );
+// ── Activity Management ──────────────────────────────────────────
 
-    console.log(`[Background] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts + 1})`);
-    
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectAttempts++;
-      this.connectToDesktopApp();
-    }, delay);
-  }
+async function checkActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
 
-  /**
-   * Send message to desktop app via WebSocket
-   */
-  sendToDesktopApp(message) {
-    if (!this.ws || this.ws.readyState !== 1) {
-      console.warn('[Background] Cannot send - not connected to desktop app');
-      return false;
-    }
-    
-    try {
-      this.ws.send(JSON.stringify(message));
-      return true;
-    } catch (error) {
-      console.error('[Background] Error sending message:', error);
-      return false;
-    }
-  }
+    const url = new URL(tab.url);
 
-  /**
-   * Refresh current tab activity
-   */
-  async refreshCurrentTab() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        await this.updateActivity(tab);
-      }
-    } catch (error) {
-      console.warn('[Background] Error refreshing current tab:', error);
-    }
-  }
-
-  /**
-   * Update activity based on current tab
-   */
-  async updateActivity(tab) {
-    if (!tab || !tab.url) {
+    if (!isOrgnDomain(url.hostname)) {
+      // Not on ORGN - clear activity but keep session alive
+      // (user might just be checking another tab briefly)
       return;
     }
 
-    this.currentTab = tab;
-    
-    try {
-      const url = new URL(tab.url);
-      const hostname = url.hostname;
-      
-      // Skip non-web URLs
-      if (!url.protocol.startsWith('http')) {
-        return;
-      }
-      
-      // Get stored apps configuration
-      const apps = await this.getStorageWithTimeout('apps', {});
-      
-      // Find matching configuration
-      const appConfig = this.findMatchingAppConfig(hostname, apps);
-      
-      if (appConfig && appConfig.enabled !== false) {
-        await this.setActivityForApp(tab, url, appConfig);
+    const parsed = parseOrgnPage(tab.title, tab.url);
+    const stateKey = `${parsed.details}|${parsed.state}`;
+
+    // Only send update if something changed
+    if (stateKey === lastOrgnState) return;
+    lastOrgnState = stateKey;
+
+    // Start session timer if not already running
+    if (!orgnSessionStart) {
+      // Try to restore from storage first
+      const stored = await chrome.storage.local.get(['orgnSessionStart']);
+      if (stored.orgnSessionStart) {
+        orgnSessionStart = stored.orgnSessionStart;
       } else {
-        await this.setBadge(tab.id, '', '');
-      }
-    } catch (error) {
-      console.error('[Background] Error updating activity:', error);
-    }
-  }
-
-  /**
-   * Find matching app configuration
-   */
-  findMatchingAppConfig(hostname, apps) {
-    for (const [pattern, config] of Object.entries(apps)) {
-      if (hostname === pattern) {
-        return config;
-      }
-      if (hostname.endsWith('.' + pattern)) {
-        return config;
-      }
-      if (hostname.includes(pattern) || pattern.includes(hostname)) {
-        return config;
+        orgnSessionStart = Date.now();
+        await chrome.storage.local.set({ orgnSessionStart });
       }
     }
-    return null;
-  }
 
-  /**
-   * Set activity for a configured app
-   */
-  async setActivityForApp(tab, url, appConfig) {
-    const activity = {
-      details: appConfig.details || tab.title,
-      state: appConfig.state || url.hostname,
-      startTimestamp: Date.now(),
-      largeImageKey: appConfig.largeImageKey || 'default',
-      largeImageText: appConfig.largeImageText || appConfig.name || tab.title,
-      smallImageKey: appConfig.smallImageKey,
-      smallImageText: appConfig.smallImageText,
-      instance: false,
-    };
-    
-    this.currentActivity = { activity };
-    const messageData = { type: 'setActivity', activity };
-    
-    if (appConfig.clientId) {
-      messageData.clientId = appConfig.clientId;
-      this.currentActivity.clientId = appConfig.clientId;
-    }
-    
-    const sent = this.sendToDesktopApp(messageData);
-    
-    if (sent) {
-      await this.setBadge(tab.id, '●', '#43b581');
-    } else {
-      await this.setBadge(tab.id, '!', '#f04747');
-    }
-  }
-
-  /**
-   * Set extension badge for a specific tab
-   */
-  async setBadge(tabId, text, color) {
-    try {
-      await chrome.action.setBadgeText({ text, tabId });
-      if (color) {
-        await chrome.action.setBadgeBackgroundColor({ color, tabId });
+    // Send activity to desktop app
+    send({
+      type: 'setActivity',
+      activity: {
+        details: parsed.details || 'ORGN CDE',
+        state: parsed.state || 'Active',
+        startTimestamp: orgnSessionStart,
+        largeImageKey: 'orgn',
+        largeImageText: 'ORGN CDE',
+        instance: false
       }
-    } catch (error) {
-      console.warn('[Background] Error setting badge:', error);
-    }
-  }
-
-  /**
-   * Set global badge (no tabId)
-   */
-  async setGlobalBadge(text, color) {
-    try {
-      await chrome.action.setBadgeText({ text });
-      if (color) {
-        await chrome.action.setBadgeBackgroundColor({ color });
-      }
-    } catch (error) {
-      console.warn('[Background] Error setting global badge:', error);
-    }
-  }
-
-  /**
-   * Get storage data with timeout
-   */
-  async getStorageWithTimeout(key, defaultValue, timeout = 5000) {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        console.warn(`[Background] Storage timeout for key: ${key}`);
-        resolve(defaultValue);
-      }, timeout);
-
-      chrome.storage.sync.get([key], (result) => {
-        clearTimeout(timeoutId);
-        if (chrome.runtime.lastError) {
-          console.warn('[Background] Storage error:', chrome.runtime.lastError);
-          resolve(defaultValue);
-        } else {
-          resolve(result[key] || defaultValue);
-        }
-      });
     });
-  }
 
-  /**
-   * Handle runtime messages from popup
-   */
-  async handleRuntimeMessage(message, sender, sendResponse) {
-    try {
-      switch (message.type) {
-        case 'getCurrentTab': {
-          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          sendResponse({ tab: tab || null });
-          break;
-        }
-        
-        case 'getConnectionStatus':
-          sendResponse({
-            desktopAppConnected: this.desktopAppConnected,
-            reconnectAttempts: this.reconnectAttempts
-          });
-          break;
-          
-        case 'updateActivity': {
-          const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (currentTab) {
-            await this.updateActivity(currentTab);
-          }
-          sendResponse({ success: true });
-          break;
-        }
-        
-        case 'testConnection':
-          if (this.desktopAppConnected) {
-            this.sendToDesktopApp({ type: 'ping' });
-            sendResponse({ success: true });
-          } else {
-            sendResponse({ success: false, error: 'Desktop app is not running. Please start it first.' });
-          }
-          break;
-          
-        case 'clearActivity':
-          this.currentActivity = null;
-          if (this.desktopAppConnected) {
-            this.sendToDesktopApp({ type: 'clearActivity' });
-          }
-          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (activeTab) {
-            await this.setBadge(activeTab.id, '', '');
-          }
-          sendResponse({ success: true });
-          break;
-          
-        default:
-          console.warn('[Background] Unknown message type:', message.type);
-          sendResponse({ success: false, error: 'Unknown message type' });
-      }
-    } catch (error) {
-      console.error('[Background] Error handling message:', error);
-      sendResponse({ success: false, error: error.message });
-    }
+  } catch (e) {
+    console.warn('[ORGN] Error checking tab:', e);
   }
+}
 
-  /**
-   * Cleanup resources
-   */
-  cleanup() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    
-    if (this.ws) {
+// Clear session when all ORGN tabs are closed
+async function checkOrgnTabsExist() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    const hasOrgn = tabs.some(tab => {
       try {
-        this.ws.close();
-      } catch (error) {
-        console.warn('[Background] Error closing WebSocket:', error);
-      }
-      this.ws = null;
+        return tab.url && isOrgnDomain(new URL(tab.url).hostname);
+      } catch (e) { return false; }
+    });
+
+    if (!hasOrgn && orgnSessionStart) {
+      // No ORGN tabs open - clear session
+      orgnSessionStart = null;
+      lastOrgnState = null;
+      await chrome.storage.local.remove(['orgnSessionStart']);
+      send({ type: 'clearActivity' });
     }
+  } catch (e) { /* ignore */ }
+}
+
+// ── Event Listeners ──────────────────────────────────────────────
+
+chrome.tabs.onActivated?.addListener(() => {
+  checkActiveTab();
+});
+
+chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.active) {
+    checkActiveTab();
   }
+  // Also check title changes (SPAs update title without navigation)
+  if (changeInfo.title && tab.active) {
+    checkActiveTab();
+  }
+});
+
+chrome.tabs.onRemoved?.addListener(() => {
+  // Check if any ORGN tabs remain
+  setTimeout(() => checkOrgnTabsExist(), 500);
+});
+
+// Handle messages from popup
+chrome.runtime.onMessage?.addListener((message, sender, sendResponse) => {
+  if (message.type === 'getConnectionStatus') {
+    sendResponse({
+      desktopAppConnected,
+      orgnSessionActive: !!orgnSessionStart,
+      orgnSessionStart,
+      lastState: lastOrgnState
+    });
+  } else if (message.type === 'getOrgnState') {
+    sendResponse({
+      connected: desktopAppConnected,
+      sessionStart: orgnSessionStart,
+      lastState: lastOrgnState
+    });
+  } else if (message.type === 'clearActivity') {
+    orgnSessionStart = null;
+    lastOrgnState = null;
+    chrome.storage.local.remove(['orgnSessionStart']);
+    send({ type: 'clearActivity' });
+    sendResponse({ success: true });
+  } else if (message.type === 'resetSession') {
+    orgnSessionStart = Date.now();
+    lastOrgnState = null;
+    chrome.storage.local.set({ orgnSessionStart });
+    checkActiveTab();
+    sendResponse({ success: true });
+  }
+  return true;
+});
+
+// ── Badge ────────────────────────────────────────────────────────
+
+async function setBadge(text, color) {
+  try {
+    await chrome.action.setBadgeText({ text });
+    if (color) await chrome.action.setBadgeBackgroundColor({ color });
+  } catch (e) { /* ignore */ }
 }
 
-// Initialize the background service
-const backgroundService = new BackgroundService();
+// ── Startup ──────────────────────────────────────────────────────
 
-// Handle service worker lifecycle
-if (typeof self !== 'undefined') {
-  self.addEventListener('beforeunload', () => {
-    backgroundService.cleanup();
-  });
-}
+// Restore session on service worker restart
+(async () => {
+  const stored = await chrome.storage.local.get(['orgnSessionStart']);
+  if (stored.orgnSessionStart) {
+    orgnSessionStart = stored.orgnSessionStart;
+  }
+  connectToDesktopApp();
+})();
