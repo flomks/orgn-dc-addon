@@ -42,5 +42,10 @@ contextBridge.exposeInMainWorld('electron', {
   onExtensionMessage: (callback) => {
     ipcRenderer.on('extension-message', (event, data) => callback(data));
   },
-  getExtensionStatus: () => ipcRenderer.invoke('get-extension-status')
+  getExtensionStatus: () => ipcRenderer.invoke('get-extension-status'),
+  
+  // Settings
+  getClientId: () => ipcRenderer.invoke('get-client-id'),
+  saveClientId: (clientId) => ipcRenderer.invoke('save-client-id', clientId),
+  getStorageInfo: () => ipcRenderer.invoke('get-storage-info')
 });

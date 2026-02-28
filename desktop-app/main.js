@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const DiscordClient = require('../lib/DiscordClient');
 
 let mainWindow = null;
@@ -9,6 +10,7 @@ let logs = [];
 const MAX_LOGS = 1000;
 let extensionConnected = false;
 let lastExtensionPing = null;
+let storedClientId = null;
 
 // Log function
 function addLog(level, ...args) {
@@ -27,6 +29,95 @@ function addLog(level, ...args) {
   }
   
   console.log(`[${level}]`, ...args);
+}
+
+// Get the path for the stored Discord key
+function getStoredKeyPath() {
+  return path.join(app.getPath('userData'), 'discord-key.enc');
+}
+
+// Load stored client ID from disk
+function loadStoredClientId() {
+  try {
+    const keyPath = getStoredKeyPath();
+    
+    if (!fs.existsSync(keyPath)) {
+      return null;
+    }
+    
+    const encryptedData = fs.readFileSync(keyPath);
+    
+    // Check if safeStorage is available
+    if (safeStorage.isEncryptionAvailable()) {
+      const decryptedKey = safeStorage.decryptString(encryptedData);
+      return decryptedKey;
+    } else {
+      // Fallback for systems without encryption - read as JSON
+      try {
+        const jsonData = JSON.parse(encryptedData.toString());
+        addLog('WARN', 'Encryption not available, using plaintext storage');
+        return jsonData.clientId || null;
+      } catch (error) {
+        addLog('ERROR', 'Failed to read stored key (fallback):', error.message);
+        return null;
+      }
+    }
+  } catch (error) {
+    addLog('ERROR', 'Failed to load stored client ID:', error.message);
+    return null;
+  }
+}
+
+// Save client ID to disk
+function saveClientId(clientId) {
+  try {
+    const keyPath = getStoredKeyPath();
+    
+    // Handle clearing the key
+    if (!clientId || clientId.trim() === '') {
+      try {
+        if (fs.existsSync(keyPath)) {
+          fs.unlinkSync(keyPath);
+          addLog('INFO', 'Stored client ID cleared');
+        }
+        storedClientId = null;
+        return { success: true };
+      } catch (error) {
+        addLog('ERROR', 'Failed to clear stored client ID:', error.message);
+        return { success: false, error: error.message };
+      }
+    }
+    
+    if (typeof clientId !== 'string') {
+      throw new Error('Valid client ID is required');
+    }
+    
+    // Ensure user data directory exists
+    const userDataPath = app.getPath('userData');
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+    }
+    
+    if (safeStorage.isEncryptionAvailable()) {
+      // Use safeStorage encryption
+      const encryptedData = safeStorage.encryptString(clientId);
+      fs.writeFileSync(keyPath, encryptedData);
+      addLog('INFO', 'Client ID saved securely');
+    } else {
+      // Fallback for systems without encryption - store as JSON with warning
+      const jsonData = { clientId, warning: 'Stored in plaintext - encryption not available' };
+      fs.writeFileSync(keyPath, JSON.stringify(jsonData, null, 2));
+      addLog('WARN', 'Client ID saved in plaintext (encryption not available)');
+    }
+    
+    // Update in-memory stored client ID
+    storedClientId = clientId;
+    
+    return { success: true };
+  } catch (error) {
+    addLog('ERROR', 'Failed to save client ID:', error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 // Initialize Discord client with event handlers
@@ -72,6 +163,20 @@ function initializeDiscordClient() {
 // Set Discord activity
 async function setActivity(activityData) {
   const client = initializeDiscordClient();
+  
+  // Use stored client ID as fallback if not provided
+  if (!activityData.clientId && storedClientId) {
+    activityData.clientId = storedClientId;
+    addLog('INFO', 'Using stored client ID as fallback');
+  }
+  
+  // Validate client ID
+  if (!activityData.clientId) {
+    const error = 'No Discord Application ID configured. Please set one in Settings.';
+    addLog('ERROR', error);
+    return { success: false, error };
+  }
+  
   return await client.setActivity(activityData);
 }
 
@@ -258,6 +363,22 @@ ipcMain.handle('test-connection', async (event, clientId) => {
   return await client.testConnection(clientId);
 });
 
+ipcMain.handle('get-client-id', () => {
+  return storedClientId;
+});
+
+ipcMain.handle('save-client-id', (event, clientId) => {
+  return saveClientId(clientId);
+});
+
+ipcMain.handle('get-storage-info', () => {
+  return {
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+    storageLocation: getStoredKeyPath(),
+    hasStoredKey: storedClientId !== null
+  };
+});
+
 // Native Messaging Handler (for browser extension)
 if (process.stdin.isTTY === false) {
   // We're being called by browser extension
@@ -318,7 +439,13 @@ function handleNativeMessage(message) {
       sendNativeMessage({ type: 'pong', timestamp: Date.now() });
       break;
     case 'setActivity':
-      setActivity(message.activity).then(result => {
+      // Use provided clientId or fall back to stored one
+      const activityData = {
+        ...message.activity,
+        clientId: message.clientId || message.activity.clientId || storedClientId
+      };
+      
+      setActivity(activityData).then(result => {
         if (result.success) {
           sendNativeMessage({ type: 'activitySet', success: true });
         } else {
@@ -366,6 +493,12 @@ app.whenReady().then(() => {
   addLog('INFO', 'Version:', app.getVersion());
   addLog('INFO', 'Electron:', process.versions.electron);
   addLog('INFO', 'Node:', process.versions.node);
+  
+  // Load stored client ID on startup
+  storedClientId = loadStoredClientId();
+  if (storedClientId) {
+    addLog('INFO', 'Loaded stored Discord client ID');
+  }
   
   createWindow();
   createTray();

@@ -52,6 +52,13 @@
             </svg>
             Test
           </button>
+          <button class="nav-item" data-view="settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="m12 1 1.36 2.64L16 3l.64 2.36L19 6l-.64 1.36L19 10l-2.36.64L16 13l-1.36-.64L12 13l-1.36-.64L8 13l-.64-2.36L5 10l.64-1.36L5 6l2.36-.64L8 3l1.36.64L12 1z"></path>
+            </svg>
+            Settings
+          </button>
         </nav>
       </aside>
 
@@ -167,6 +174,60 @@
               <p>Verwende diesen Test-Bereich um deine Discord Application zu testen.</p>
               <p>Die Activity wird in deinem Discord-Profil angezeigt.</p>
               <p><strong>Hinweis:</strong> Discord Desktop App muss laufen!</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- Settings View -->
+        <div id="settingsView" class="view">
+          <section class="card">
+            <h2>Discord Application Settings</h2>
+            <div class="info-box">
+              <p>Configure your global Discord Application ID. This will be used as the default for all Rich Presence activities when no specific ID is provided by the browser extension.</p>
+              <p><strong>Security:</strong> The key is encrypted and stored securely on your local machine.</p>
+            </div>
+            
+            <form id="settingsForm" class="form">
+              <div class="form-group">
+                <label for="globalClientId">Discord Application ID</label>
+                <div class="input-with-toggle">
+                  <input type="password" id="globalClientId" placeholder="1234567890123456789" autocomplete="new-password">
+                  <button type="button" id="toggleClientIdVisibility" class="input-toggle-btn" title="Show/Hide Client ID" aria-label="Show/Hide Client ID">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </div>
+                <small>Create an application at <a href="https://discord.com/developers/applications" target="_blank">discord.com/developers/applications</a></small>
+              </div>
+
+              <div class="button-group">
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <button type="button" id="clearStoredKeyBtn" class="btn btn-danger">Clear Stored Key</button>
+              </div>
+            </form>
+
+            <div id="settingsStatus" class="settings-status hidden"></div>
+          </section>
+
+          <section class="card">
+            <h3>Storage Information</h3>
+            <div class="info-box">
+              <div id="storageInfo">
+                <div class="info-row">
+                  <span class="label">Encryption Available:</span>
+                  <span id="encryptionStatus" class="value">Checking...</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">Storage Location:</span>
+                  <span id="storageLocation" class="value">Loading...</span>
+                </div>
+                <div class="info-row">
+                  <span class="label">Current Status:</span>
+                  <span id="currentKeyStatus" class="value">No key stored</span>
+                </div>
+              </div>
             </div>
           </section>
         </div>
