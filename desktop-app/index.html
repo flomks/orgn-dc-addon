@@ -136,9 +136,9 @@
             <h2>Test Discord Activity</h2>
             <form id="testForm" class="form">
               <div class="form-group">
-                <label for="testClientId">Discord Application ID</label>
-                <input type="text" id="testClientId" placeholder="1234567890123456789" required>
-                <small>Erstelle eine App auf discord.com/developers/applications</small>
+                <label for="testClientId">Discord Application ID (optional)</label>
+                <input type="text" id="testClientId" placeholder="Verwendet gespeicherte ID aus Settings">
+                <small>Leer lassen um die in den Settings gespeicherte Application ID zu verwenden. Alternativ eine spezifische ID zum Testen eingeben.</small>
               </div>
 
               <div class="form-group">
@@ -171,9 +171,10 @@
           <section class="card">
             <h3>Info</h3>
             <div class="info-box">
-              <p>Verwende diesen Test-Bereich um deine Discord Application zu testen.</p>
+              <p>Verwende diesen Bereich um Rich Presence Activities zu testen.</p>
               <p>Die Activity wird in deinem Discord-Profil angezeigt.</p>
               <p><strong>Hinweis:</strong> Discord Desktop App muss laufen!</p>
+              <p><strong>Application ID:</strong> Wenn du die Application ID leer lässt, wird automatisch die in den Settings gespeicherte ID verwendet. Du kannst hier aber auch eine andere ID zum Testen eingeben.</p>
             </div>
           </section>
         </div>
