@@ -12,12 +12,13 @@
     }
 
     body {
-      width: 400px;
+      width: 420px;
       min-height: 300px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       background: #2c2f33;
       color: #ffffff;
       padding: 16px;
+      line-height: 1.5;
     }
 
     h1 {
@@ -239,19 +240,151 @@
     .icon-button.danger:hover {
       color: #f04747;
     }
+
+    /* Loading states and accessibility improvements */
+    .loading-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      gap: 8px;
+    }
+
+    .loading-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #7289da;
+      border-top: 2px solid transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Form validation styles */
+    .form-group.field-valid input,
+    .form-group.field-valid textarea {
+      border-color: #43b581;
+    }
+
+    .form-group.field-invalid input,
+    .form-group.field-invalid textarea {
+      border-color: #f04747;
+    }
+
+    .field-error {
+      color: #f04747;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .character-counter {
+      font-size: 10px;
+      color: #72767d;
+      text-align: right;
+      margin-top: 2px;
+    }
+
+    .character-counter.warning {
+      color: #faa61a;
+    }
+
+    /* Empty state styling */
+    .empty-state {
+      text-align: center;
+      padding: 24px 16px;
+      color: #72767d;
+    }
+
+    .empty-state-icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+
+    .empty-state-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #b9bbbe;
+    }
+
+    .empty-state-text {
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    /* App item improvements */
+    .app-item-status {
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .app-item-status.enabled {
+      color: #43b581;
+    }
+
+    .app-item-status.disabled {
+      color: #f04747;
+    }
+
+    /* Focus styles for better accessibility */
+    button:focus,
+    input:focus,
+    textarea:focus {
+      outline: 2px solid #7289da;
+      outline-offset: 2px;
+    }
+
+    /* High contrast mode support */
+    @media (prefers-contrast: high) {
+      .status.success {
+        background: #ffffff;
+        color: #000000;
+      }
+      
+      .status.error {
+        background: #ffffff;
+        color: #000000;
+      }
+    }
+
+    /* Reduced motion support */
+    @media (prefers-reduced-motion: reduce) {
+      .loading-spinner {
+        animation: none;
+      }
+      
+      .collapsible::after {
+        transition: none;
+      }
+      
+      .collapsible-content {
+        transition: none;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>Discord Rich Presence</h1>
+  <main id="mainContent" aria-busy="false">
+    <h1>Discord Rich Presence</h1>
 
-  <div id="statusMessage" class="status hidden"></div>
-
-  <div class="section">
-    <div class="current-site">
-      <strong>Current Page:</strong>
-      <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Loading...</div>
+    <div id="loadingIndicator" class="loading-indicator hidden" aria-live="polite">
+      <div class="loading-spinner"></div>
+      <span>Loading...</span>
     </div>
-  </div>
+
+    <div id="statusMessage" class="status hidden" role="alert" aria-live="polite"></div>
+
+    <div class="section">
+      <div class="current-site">
+        <strong>Current Page:</strong>
+        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Loading...</div>
+        <div id="currentTitle" style="font-size: 11px; color: #72767d; margin-top: 2px; font-style: italic;"></div>
+      </div>
+    </div>
 
   <div class="section">
     <div class="collapsible" id="configCollapsible">
@@ -268,33 +401,33 @@
 
         <div class="form-group">
           <label for="details">Details (optional)</label>
-          <input type="text" id="details" placeholder="z.B. Watching videos">
+          <input type="text" id="details" placeholder="e.g. Watching videos">
         </div>
 
         <div class="form-group">
           <label for="state">State (optional)</label>
-          <input type="text" id="state" placeholder="z.B. Entertainment">
+          <input type="text" id="state" placeholder="e.g. Entertainment">
         </div>
 
         <div class="form-group">
           <label for="largeImageKey">Large Image Key (optional)</label>
-          <input type="text" id="largeImageKey" placeholder="z.B. youtube_logo">
-          <div class="help-text">Asset-Name aus deiner Discord Application</div>
+          <input type="text" id="largeImageKey" placeholder="e.g. youtube_logo">
+          <div class="help-text">Asset name from your Discord Application</div>
         </div>
 
         <div class="form-group">
           <label for="largeImageText">Large Image Text (optional)</label>
-          <input type="text" id="largeImageText" placeholder="z.B. YouTube">
+          <input type="text" id="largeImageText" placeholder="e.g. YouTube">
         </div>
 
         <div class="form-group">
           <label for="smallImageKey">Small Image Key (optional)</label>
-          <input type="text" id="smallImageKey" placeholder="z.B. playing">
+          <input type="text" id="smallImageKey" placeholder="e.g. playing">
         </div>
 
         <div class="form-group">
           <label for="smallImageText">Small Image Text (optional)</label>
-          <input type="text" id="smallImageText" placeholder="z.B. Active">
+          <input type="text" id="smallImageText" placeholder="e.g. Active">
         </div>
 
         <div class="form-group">
@@ -304,7 +437,7 @@
           </div>
         </div>
 
-        <button type="submit" class="button secondary">Add/Update Page</button>
+        <button type="submit" class="button secondary">Add/Update Site</button>
       </form>
     </div>
   </div>
@@ -324,5 +457,6 @@
   </div>
 
   <script src="popup.js"></script>
+  </main>
 </body>
 </html>
