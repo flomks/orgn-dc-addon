@@ -187,7 +187,31 @@ async function checkActiveTab() {
       await chrome.storage.local.set({ orgnSessionStart: sessionStart });
     }
 
-    // Store current state so popup can read it directly
+    // Check privacy setting - hide names if disabled
+    const privacySettings = await chrome.storage.sync.get(['hideNames']);
+    const hideNames = privacySettings.hideNames === true;
+
+    let displayDetails = parsed.details || 'ORGN CDE';
+    let displayState = parsed.state || 'Active';
+
+    if (hideNames) {
+      // Replace specific names with generic labels
+      if (parsed.state && parsed.state !== 'Browsing' && parsed.state !== 'Active') {
+        // State contains a name (e.g. trial name) -- hide it
+        displayState = 'Working';
+      }
+      if (parsed.details && !['Dashboard', 'Projects', 'Browsing', 'Working on Trial', 'Viewing Project'].includes(parsed.details)) {
+        // Details contains a name -- hide it
+        displayDetails = parsed.details.replace(/.+/, () => {
+          // Keep the activity type, just hide the name
+          if (parsed.details === 'Working on Trial') return 'Working on Trial';
+          if (parsed.details === 'Viewing Project') return 'Viewing Project';
+          return 'Working';
+        });
+      }
+    }
+
+    // Store current state so popup can read it directly (always store real names for popup)
     await chrome.storage.local.set({
       orgnLastDetails: parsed.details,
       orgnLastState: parsed.state
@@ -196,8 +220,8 @@ async function checkActiveTab() {
     send({
       type: 'setActivity',
       activity: {
-        details: parsed.details || 'ORGN CDE',
-        state: parsed.state || 'Active',
+        details: displayDetails,
+        state: displayState,
         startTimestamp: sessionStart,
         largeImageKey: 'orgn',
         largeImageText: 'ORGN CDE',

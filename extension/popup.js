@@ -90,7 +90,22 @@ async function init() {
     updatePauseUI(pausing);
   });
 
-  // 6. Buttons
+  // 6. Privacy toggle (persisted in chrome.storage.sync)
+  const privacyState = await chrome.storage.sync.get(['hideNames']);
+  const namesHidden = privacyState.hideNames === true;
+  const privacyToggle = $('privacyToggle');
+  privacyToggle.checked = !namesHidden;
+  updatePrivacyUI(namesHidden);
+
+  privacyToggle.addEventListener('change', async () => {
+    const hiding = !privacyToggle.checked;
+    await chrome.storage.sync.set({ hideNames: hiding });
+    updatePrivacyUI(hiding);
+    // Force activity re-send with new privacy setting
+    try { await sendMessage({ type: 'resetSession' }, 3000); } catch (e) { /* ignore */ }
+  });
+
+  // 7. Buttons
   $('resetSessionBtn').addEventListener('click', async () => {
     try {
       const result = await sendMessage({ type: 'resetSession' }, 3000);
@@ -116,6 +131,14 @@ function updatePauseUI(paused) {
   $('toggleSublabel').textContent = paused
     ? 'Discord activity is hidden'
     : 'Activity is shared on Discord';
+}
+
+// ── Privacy UI ───────────────────────────────────────────────────
+
+function updatePrivacyUI(hidden) {
+  $('privacySublabel').textContent = hidden
+    ? 'Only activity type is shown'
+    : 'Project and trial names are visible';
 }
 
 // ── Status pills ─────────────────────────────────────────────────
