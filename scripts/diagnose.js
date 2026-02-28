@@ -57,7 +57,8 @@ check('Platform', true, `${platform} (${os.arch()})`);
 // 2. File Checks
 console.log('═══ File Structure ═══\n');
 
-const nativeHostPath = path.resolve(__dirname, '../native-host/index.js');
+const nativeHostFile = platform === 'win32' ? 'index.bat' : 'index.js';
+const nativeHostPath = path.resolve(__dirname, '../native-host', nativeHostFile);
 const nativeHostExists = fs.existsSync(nativeHostPath);
 check(
   'Native Host Script',

@@ -2,9 +2,30 @@
 
 ## Installation & Setup
 
-### Q: Warum öffnet sich Visual Studio Code, wenn ich den Native Host starte?
+### Q: Warum öffnet sich Visual Studio Code, wenn ich auf die Extension klicke?
 
-**A:** Das ist normal und kein Problem! 
+**A:** Das war ein Bug in älteren Versionen! **Die Installation wurde repariert.**
+
+**Problem:** Auf Windows verwies das Native Host Manifest auf `index.js` statt `index.bat`. Windows versuchte dann die `.js` Datei mit deinem Standard-Editor (VS Code) zu öffnen, anstatt sie auszuführen.
+
+**Lösung:**
+```bash
+# Alte Installation entfernen
+npm run uninstall-host
+
+# Neu installieren (jetzt mit .bat Wrapper auf Windows)
+npm run install-host
+
+# Extension ID registrieren
+npm run update-id
+```
+
+**Alternativ: Desktop-App verwenden (Einfacher!)**
+```bash
+npm run app
+```
+
+Die Desktop-App umgeht dieses Problem komplett und bietet eine schöne GUI!
 
 **Wichtig:** Du musst den Native Host **NICHT manuell starten**!
 
@@ -23,7 +44,7 @@ Der Browser startet ihn **automatisch** im Hintergrund, wenn:
 - ❌ `node native-host/index.js` manuell starten
 - ❌ Ein separates Terminal-Fenster offen halten
 
-Der Native Host läuft unsichtbar im Hintergrund, wenn er gebraucht wird!
+Siehe auch: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
 ---
 

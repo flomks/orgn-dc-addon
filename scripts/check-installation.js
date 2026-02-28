@@ -32,7 +32,8 @@ console.log();
 
 // Check native host script
 console.log('2. Checking native host script...');
-const nativeHostPath = path.resolve(__dirname, '../native-host/index.js');
+const nativeHostFile = platform === 'win32' ? 'index.bat' : 'index.js';
+const nativeHostPath = path.resolve(__dirname, '../native-host', nativeHostFile);
 if (fs.existsSync(nativeHostPath)) {
   console.log('   ✓ Native host script exists:', nativeHostPath);
   

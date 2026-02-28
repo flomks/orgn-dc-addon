@@ -44,8 +44,9 @@ try {
   process.exit(1);
 }
 
-// Get new path
-const cliHostPath = path.resolve(__dirname, '../native-host/index.js');
+// Get new path (use .bat on Windows to prevent VS Code from opening)
+const cliHostFile = platform === 'win32' ? 'index.bat' : 'index.js';
+const cliHostPath = path.resolve(__dirname, '../native-host', cliHostFile);
 console.log('\nNew path:', cliHostPath);
 
 // Check if CLI host exists
