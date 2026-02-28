@@ -291,6 +291,108 @@ function createWindow() {
   });
 }
 
+// Update tray menu (standalone function to be callable from anywhere)
+function updateTrayMenu() {
+  if (!tray) return;
+  
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'ORGN Discord Bridge',
+      enabled: false
+    },
+    { type: 'separator' },
+    {
+      label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isVisible()) {
+            mainWindow.hide();
+          } else {
+            mainWindow.show();
+          }
+        } else {
+          createWindow();
+          mainWindow.show();
+        }
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Activity löschen',
+      click: () => {
+        clearActivity();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: app.isPackaged ? 'Start with system' : 'Start with system (nur in installierter Version)',
+      type: 'checkbox',
+      checked: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+      enabled: app.isPackaged,
+      click: (menuItem) => {
+        // Extra check - should not be called if disabled, but just in case
+        if (!app.isPackaged) {
+          addLog('WARN', 'Autostart funktioniert nur in der installierten Version');
+          return;
+        }
+        
+        const options = {
+          openAtLogin: menuItem.checked,
+          openAsHidden: true
+        };
+        
+        if (process.platform === 'darwin') {
+          options.path = app.getPath('exe');
+        }
+        
+        if (process.platform === 'linux') {
+          const os = require('os');
+          const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
+          
+          if (menuItem.checked) {
+            const autostartDir = path.dirname(desktopFilePath);
+            if (!fs.existsSync(autostartDir)) {
+              fs.mkdirSync(autostartDir, { recursive: true });
+            }
+            
+        const desktopContent = `[Desktop Entry]
+Type=Application
+Name=ORGN Discord Bridge
+Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+`;
+            
+            fs.writeFileSync(desktopFilePath, desktopContent);
+            addLog('INFO', 'Autostart enabled via tray menu');
+          } else {
+            if (fs.existsSync(desktopFilePath)) {
+              fs.unlinkSync(desktopFilePath);
+              addLog('INFO', 'Autostart disabled via tray menu');
+            }
+          }
+        } else {
+          app.setLoginItemSettings(options);
+          addLog('INFO', `Autostart ${menuItem.checked ? 'enabled' : 'disabled'} via tray menu`);
+        }
+        
+        updateTrayMenu();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Beenden',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+  
+  tray.setContextMenu(contextMenu);
+}
+
 // Create tray icon
 function createTray() {
   const iconPath = path.join(__dirname, '../extension/icons/icon16.png');
@@ -298,51 +400,9 @@ function createTray() {
   
   tray = new Tray(trayIcon);
   
-  const updateTrayMenu = () => {
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: 'Discord Rich Presence',
-        enabled: false
-      },
-      { type: 'separator' },
-      {
-        label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
-        click: () => {
-          if (mainWindow) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              mainWindow.show();
-            }
-          } else {
-            createWindow();
-            mainWindow.show();
-          }
-          updateTrayMenu();
-        }
-      },
-      {
-        label: 'Activity löschen',
-        click: () => {
-          clearActivity();
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Beenden',
-        click: () => {
-          app.isQuitting = true;
-          app.quit();
-        }
-      }
-    ]);
-    
-    tray.setContextMenu(contextMenu);
-  };
-  
   updateTrayMenu();
   
-  tray.setToolTip('Discord Rich Presence');
+  tray.setToolTip('ORGN Discord Bridge');
   
   tray.on('click', () => {
     if (mainWindow) {
@@ -429,6 +489,97 @@ ipcMain.handle('get-app-settings', () => {
 
 ipcMain.handle('save-app-settings', (event, settings) => {
   return saveAppSettings(settings);
+});
+
+// Autostart handlers
+ipcMain.handle('get-autostart', () => {
+  try {
+    // In development mode, check if running from npm/electron directly
+    if (!app.isPackaged) {
+      return { 
+        enabled: false, 
+        isDevelopment: true,
+        message: 'Autostart ist nur in der installierten Version verfügbar. Im Entwicklungsmodus (npm run app) funktioniert Autostart nicht sinnvoll.'
+      };
+    }
+    return { enabled: app.getLoginItemSettings().openAtLogin, isDevelopment: false };
+  } catch (error) {
+    addLog('ERROR', 'Failed to get autostart setting:', error.message);
+    return { enabled: false, isDevelopment: false, error: error.message };
+  }
+});
+
+ipcMain.handle('set-autostart', (event, { enabled }) => {
+  try {
+    // Check if running in development mode
+    if (!app.isPackaged) {
+      const message = 'Autostart funktioniert nur in der installierten Version. Nutze "npm run build:win/mac/linux" um eine installierbare Version zu erstellen.';
+      addLog('WARN', message);
+      return { 
+        success: false, 
+        isDevelopment: true,
+        error: message
+      };
+    }
+    
+    const options = {
+      openAtLogin: enabled,
+      openAsHidden: true
+    };
+    
+    // On macOS packaged builds, we need to explicitly set the path
+    if (process.platform === 'darwin') {
+      options.path = app.getPath('exe');
+    }
+    
+    // On Linux, fall back to creating .desktop file since app.setLoginItemSettings is limited
+    if (process.platform === 'linux') {
+      const os = require('os');
+      const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
+      const userDataPath = app.getPath('userData');
+      
+      if (enabled) {
+        // Create autostart directory if it doesn't exist
+        const autostartDir = path.dirname(desktopFilePath);
+        if (!fs.existsSync(autostartDir)) {
+          fs.mkdirSync(autostartDir, { recursive: true });
+        }
+        
+        // Create desktop file
+            const desktopContent = `[Desktop Entry]
+Type=Application
+Name=ORGN Discord Bridge
+Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+`;
+            
+            fs.writeFileSync(desktopFilePath, desktopContent);
+        addLog('INFO', 'Autostart enabled (Linux desktop file created)');
+      } else {
+        // Remove desktop file
+        if (fs.existsSync(desktopFilePath)) {
+          fs.unlinkSync(desktopFilePath);
+          addLog('INFO', 'Autostart disabled (Linux desktop file removed)');
+        }
+      }
+    } else {
+      // Use Electron's built-in method for Windows and macOS
+      app.setLoginItemSettings(options);
+      addLog('INFO', `Autostart ${enabled ? 'enabled' : 'disabled'}`);
+    }
+    
+    // Update tray menu to reflect the change
+    if (typeof updateTrayMenu === 'function') {
+      updateTrayMenu();
+    }
+    
+    return { success: true };
+  } catch (error) {
+    addLog('ERROR', 'Failed to set autostart:', error.message);
+    return { success: false, error: error.message };
+  }
 });
 
 // Native Messaging Handler (for browser extension)
@@ -541,7 +692,7 @@ function sendNativeMessage(message) {
 
 // App lifecycle
 app.whenReady().then(() => {
-  addLog('INFO', 'Discord Rich Presence Desktop App started');
+  addLog('INFO', 'ORGN Discord Bridge started');
   addLog('INFO', 'Version:', app.getVersion());
   addLog('INFO', 'Electron:', process.versions.electron);
   addLog('INFO', 'Node:', process.versions.node);

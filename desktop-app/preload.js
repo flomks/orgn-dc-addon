@@ -49,5 +49,9 @@ contextBridge.exposeInMainWorld('electron', {
   saveClientId: (clientId) => ipcRenderer.invoke('save-client-id', clientId),
   getStorageInfo: () => ipcRenderer.invoke('get-storage-info'),
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
-  saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings)
+  saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
+  
+  // Autostart
+  getAutostart: () => ipcRenderer.invoke('get-autostart'),
+  setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', { enabled })
 });

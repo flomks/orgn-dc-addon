@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord Rich Presence - Desktop App</title>
+  <title>ORGN Discord Bridge</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <h1>Discord Rich Presence</h1>
+        <h1>ORGN Discord Bridge</h1>
         <span class="version">v1.0.0</span>
       </div>
       <div class="header-right">
@@ -224,6 +224,21 @@
               </div>
 
               <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
+            </form>
+          </section>
+
+          <section class="card">
+            <h3>Startup</h3>
+            <form id="autostartForm" class="form">
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="autostartToggle">
+                  <span>Start with system</span>
+                </label>
+                <small>Automatically launch the app when you log in to your computer.</small>
+              </div>
+
+              <div id="autostartStatus" class="settings-status hidden"></div>
             </form>
           </section>
 
