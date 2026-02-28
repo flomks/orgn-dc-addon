@@ -77,7 +77,11 @@ npm run app
 - ✅ System Tray Integration
 - ✅ Funktioniert standalone ODER mit Browser Extension
 
-**Anleitung:** Siehe [DESKTOP-APP-GUIDE.md](DESKTOP-APP-GUIDE.md)
+**Wichtig:** Die App kann in zwei Modi laufen:
+- **Standalone:** Manuelle Tests ohne Extension
+- **Native Messaging:** Automatisch von Extension gestartet
+
+**Anleitung:** Siehe [DESKTOP-APP-GUIDE.md](DESKTOP-APP-GUIDE.md) und [docs/DESKTOP-APP-MODES.md](docs/DESKTOP-APP-MODES.md)
 
 ### 2. Browser Extension
 

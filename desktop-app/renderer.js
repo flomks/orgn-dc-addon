@@ -152,10 +152,14 @@ document.getElementById('checkExtensionBtn').addEventListener('click', async () 
     }
   } else {
     extensionStatusText.innerHTML = `
-      ℹ️ <strong>Standalone Mode</strong><br>
-      <small>Desktop app was started manually (npm run app)</small><br>
-      <small>Extension cannot connect in this mode</small><br>
-      <small>Extension starts the app automatically when needed</small>
+      ℹ️ <strong>Standalone Mode - Manual Testing</strong><br>
+      <small>You started the app manually (npm run app)</small><br>
+      <small>✅ Use the "Test" tab to test Discord activities manually</small><br>
+      <small>ℹ️ For automatic web app detection, install the browser extension</small><br>
+      <small style="margin-top: 8px; display: block; color: #7289da;">
+        💡 <strong>Tip:</strong> Both modes can run simultaneously!<br>
+        <a href="#" onclick="window.electron.openExternal('https://github.com/flomks/orgn-dc-addon/blob/main/docs/DESKTOP-APP-MODES.md'); return false;" style="color: #7289da;">Learn more about app modes →</a>
+      </small>
     `;
   }
   
