@@ -325,16 +325,23 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Start with system',
+      label: app.isPackaged ? 'Start with system' : 'Start with system (nur in installierter Version)',
       type: 'checkbox',
-      checked: app.getLoginItemSettings().openAtLogin,
+      checked: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+      enabled: app.isPackaged,
       click: (menuItem) => {
+        // Extra check - should not be called if disabled, but just in case
+        if (!app.isPackaged) {
+          addLog('WARN', 'Autostart funktioniert nur in der installierten Version');
+          return;
+        }
+        
         const options = {
           openAtLogin: menuItem.checked,
           openAsHidden: true
         };
         
-        if (process.platform === 'darwin' && app.isPackaged) {
+        if (process.platform === 'darwin') {
           options.path = app.getPath('exe');
         }
         
@@ -487,22 +494,41 @@ ipcMain.handle('save-app-settings', (event, settings) => {
 // Autostart handlers
 ipcMain.handle('get-autostart', () => {
   try {
-    return app.getLoginItemSettings().openAtLogin;
+    // In development mode, check if running from npm/electron directly
+    if (!app.isPackaged) {
+      return { 
+        enabled: false, 
+        isDevelopment: true,
+        message: 'Autostart ist nur in der installierten Version verfügbar. Im Entwicklungsmodus (npm run app) funktioniert Autostart nicht sinnvoll.'
+      };
+    }
+    return { enabled: app.getLoginItemSettings().openAtLogin, isDevelopment: false };
   } catch (error) {
     addLog('ERROR', 'Failed to get autostart setting:', error.message);
-    return false;
+    return { enabled: false, isDevelopment: false, error: error.message };
   }
 });
 
 ipcMain.handle('set-autostart', (event, { enabled }) => {
   try {
+    // Check if running in development mode
+    if (!app.isPackaged) {
+      const message = 'Autostart funktioniert nur in der installierten Version. Nutze "npm run build:win/mac/linux" um eine installierbare Version zu erstellen.';
+      addLog('WARN', message);
+      return { 
+        success: false, 
+        isDevelopment: true,
+        error: message
+      };
+    }
+    
     const options = {
       openAtLogin: enabled,
       openAsHidden: true
     };
     
     // On macOS packaged builds, we need to explicitly set the path
-    if (process.platform === 'darwin' && app.isPackaged) {
+    if (process.platform === 'darwin') {
       options.path = app.getPath('exe');
     }
     

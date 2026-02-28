@@ -356,15 +356,26 @@ async function loadSettingsView() {
     document.getElementById('quitOnClose').checked = appSettings.quitOnClose || false;
     
     // Load autostart setting
-    const autostartEnabled = await window.electron.getAutostart();
-    document.getElementById('autostartToggle').checked = autostartEnabled;
+    const autostartResult = await window.electron.getAutostart();
+    const autostartToggle = document.getElementById('autostartToggle');
+    
+    if (autostartResult.isDevelopment) {
+      // Development mode - show warning and disable toggle
+      autostartToggle.checked = false;
+      autostartToggle.disabled = true;
+      showAutostartStatus(autostartResult.message || 'Autostart nur in installierter Version verfügbar', 'info');
+    } else {
+      // Production mode - enable toggle and set current state
+      autostartToggle.disabled = false;
+      autostartToggle.checked = autostartResult.enabled || false;
+      hideAutostartStatus();
+    }
     
     // Update storage information
     updateStorageInfo();
     
-    // Clear any previous status messages
+    // Clear any previous status messages (except autostart which we might have set)
     hideSettingsStatus();
-    hideAutostartStatus();
     
   } catch (error) {
     console.error('Error loading settings:', error);
