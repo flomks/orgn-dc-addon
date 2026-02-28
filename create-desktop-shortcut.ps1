@@ -1,8 +1,8 @@
-# Discord Rich Presence - Desktop Shortcut Creator
+# ORGN Discord Bridge - Desktop Shortcut Creator
 # Erstellt eine Desktop-Verknüpfung für die Electron App
 
-Write-Host "Discord Rich Presence - Desktop Verknuepfung erstellen" -ForegroundColor Cyan
-Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "ORGN Discord Bridge - Desktop Verknuepfung erstellen" -ForegroundColor Cyan
+Write-Host "====================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Get current directory
@@ -20,7 +20,7 @@ if (-not (Test-Path $StartScript)) {
 
 # Get Desktop path
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
-$ShortcutPath = Join-Path $DesktopPath "Discord Rich Presence.lnk"
+$ShortcutPath = Join-Path $DesktopPath "ORGN Discord Bridge.lnk"
 
 # Create shortcut
 Write-Host "Erstelle Verknuepfung auf dem Desktop..." -ForegroundColor Yellow
@@ -29,7 +29,7 @@ $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = $StartScript
 $Shortcut.WorkingDirectory = $AppDir
-$Shortcut.Description = "Discord Rich Presence Desktop App"
+$Shortcut.Description = "ORGN Discord Bridge - Discord Rich Presence für Web-Apps"
 $Shortcut.IconLocation = "shell32.dll,14"  # Standard app icon
 $Shortcut.Save()
 

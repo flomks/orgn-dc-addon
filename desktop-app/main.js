@@ -297,7 +297,7 @@ function updateTrayMenu() {
   
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Discord Rich Presence',
+      label: 'ORGN Discord Bridge',
       enabled: false
     },
     { type: 'separator' },
@@ -355,9 +355,9 @@ function updateTrayMenu() {
               fs.mkdirSync(autostartDir, { recursive: true });
             }
             
-            const desktopContent = `[Desktop Entry]
+        const desktopContent = `[Desktop Entry]
 Type=Application
-Name=Discord Rich Presence
+Name=ORGN Discord Bridge
 Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
 Hidden=false
 NoDisplay=false
@@ -402,7 +402,7 @@ function createTray() {
   
   updateTrayMenu();
   
-  tray.setToolTip('Discord Rich Presence');
+  tray.setToolTip('ORGN Discord Bridge');
   
   tray.on('click', () => {
     if (mainWindow) {
@@ -546,16 +546,16 @@ ipcMain.handle('set-autostart', (event, { enabled }) => {
         }
         
         // Create desktop file
-        const desktopContent = `[Desktop Entry]
+            const desktopContent = `[Desktop Entry]
 Type=Application
-Name=Discord Rich Presence
+Name=ORGN Discord Bridge
 Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 `;
-        
-        fs.writeFileSync(desktopFilePath, desktopContent);
+            
+            fs.writeFileSync(desktopFilePath, desktopContent);
         addLog('INFO', 'Autostart enabled (Linux desktop file created)');
       } else {
         // Remove desktop file
@@ -692,7 +692,7 @@ function sendNativeMessage(message) {
 
 // App lifecycle
 app.whenReady().then(() => {
-  addLog('INFO', 'Discord Rich Presence Desktop App started');
+  addLog('INFO', 'ORGN Discord Bridge started');
   addLog('INFO', 'Version:', app.getVersion());
   addLog('INFO', 'Electron:', process.versions.electron);
   addLog('INFO', 'Node:', process.versions.node);

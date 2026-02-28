@@ -1,4 +1,4 @@
-# Discord Rich Presence - Desktop App starten
+# ORGN Discord Bridge - Desktop App starten
 
 Es gibt mehrere Möglichkeiten, die Desktop App zu starten:
 
@@ -28,7 +28,7 @@ npm run app
 ## Option 3: Desktop-Verknüpfung erstellen (Windows)
 
 1. Doppelklick auf `create-desktop-shortcut.bat`
-2. Eine Verknüpfung wird auf deinem Desktop erstellt
+2. Eine Verknüpfung "ORGN Discord Bridge" wird auf deinem Desktop erstellt
 3. Ab jetzt kannst du die App über die Desktop-Verknüpfung starten
 
 **Hinweis:** Dies erstellt nur eine Verknüpfung zur Development-Version!
@@ -41,7 +41,7 @@ Die Autostart-Funktion funktioniert nur in der installierten Version:
 ```bash
 npm run build:win
 ```
-Ausgabe: `dist/Discord Rich Presence Setup.exe`
+Ausgabe: `dist/ORGN Discord Bridge Setup.exe`
 
 Nach der Installation:
 - App erscheint im Startmenü
@@ -52,15 +52,15 @@ Nach der Installation:
 ```bash
 npm run build:mac
 ```
-Ausgabe: `dist/Discord Rich Presence.dmg`
+Ausgabe: `dist/ORGN Discord Bridge.dmg`
 
 ### Linux (AppImage/DEB erstellen)
 ```bash
 npm run build:linux
 ```
 Ausgabe: 
-- `dist/Discord Rich Presence.AppImage`
-- `dist/discord-rich-presence.deb`
+- `dist/ORGN Discord Bridge.AppImage`
+- `dist/orgn-discord-bridge.deb`
 
 ## Unterschied: Development vs. Production
 
@@ -93,5 +93,5 @@ npm install electron --save-dev
 Manuelle Verknüpfung erstellen:
 1. Rechtsklick auf Desktop → Neu → Verknüpfung
 2. Durchsuchen → `start-app.bat` auswählen
-3. Name: "Discord Rich Presence"
+3. Name: "ORGN Discord Bridge"
 4. Fertigstellen

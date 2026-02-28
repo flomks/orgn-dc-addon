@@ -1,7 +1,7 @@
 {
-  "name": "discord-richpresence-webapp-bridge",
+  "name": "orgn-discord-bridge",
   "version": "1.0.0",
-  "description": "Browser extension with native host for Discord Rich Presence in web applications",
+  "description": "ORGN Discord Bridge - Browser extension with native host for Discord Rich Presence in web applications",
   "main": "desktop-app/main.js",
   "scripts": {
     "install-host": "node scripts/install-native-host.js",
@@ -38,8 +38,8 @@
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId": "com.discord.richpresence.webapp",
-    "productName": "Discord Rich Presence",
+    "appId": "com.orgn.discord.bridge",
+    "productName": "ORGN Discord Bridge",
     "directories": {
       "output": "dist"
     },

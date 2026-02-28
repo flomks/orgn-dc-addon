@@ -1,8 +1,8 @@
 @echo off
-REM Discord Rich Presence Desktop App - Quick Start
+REM ORGN Discord Bridge - Quick Start
 REM Startet die Electron Desktop App im Entwicklungsmodus
 
-echo Starting Discord Rich Presence Desktop App...
+echo Starting ORGN Discord Bridge...
 echo.
 
 REM Check if node_modules exists

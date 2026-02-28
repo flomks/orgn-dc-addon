@@ -1,8 +1,8 @@
 #!/bin/bash
-# Discord Rich Presence Desktop App - Quick Start
+# ORGN Discord Bridge - Quick Start
 # Startet die Electron Desktop App im Entwicklungsmodus
 
-echo "Starting Discord Rich Presence Desktop App..."
+echo "Starting ORGN Discord Bridge..."
 echo ""
 
 # Check if node_modules exists

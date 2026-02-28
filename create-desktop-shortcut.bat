@@ -1,10 +1,10 @@
 @echo off
-REM Discord Rich Presence - Desktop Shortcut Creator
+REM ORGN Discord Bridge - Desktop Shortcut Creator
 REM Erstellt eine Desktop-Verknuepfung fuer die Electron App
 
-echo ========================================================
-echo Discord Rich Presence - Desktop Verknuepfung erstellen
-echo ========================================================
+echo ====================================================
+echo ORGN Discord Bridge - Desktop Verknuepfung erstellen
+echo ====================================================
 echo.
 
 REM Check if PowerShell is available
