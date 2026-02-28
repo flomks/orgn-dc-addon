@@ -269,7 +269,7 @@ function updateActivityDisplay(activity) {
 }
 
 function clearActivityDisplay() {
-  currentActivity.innerHTML = '<p class="empty-state">Keine Activity aktiv</p>';
+  currentActivity.innerHTML = '<p class="empty-state">No activity active</p>';
 }
 
 function addLogEntry(log) {
@@ -363,7 +363,7 @@ async function loadSettingsView() {
       // Development mode - show warning and disable toggle
       autostartToggle.checked = false;
       autostartToggle.disabled = true;
-      showAutostartStatus(autostartResult.message || 'Autostart nur in installierter Version verfügbar', 'info');
+      showAutostartStatus(autostartResult.message || 'Autostart only available in installed version', 'info');
     } else {
       // Production mode - enable toggle and set current state
       autostartToggle.disabled = false;
@@ -537,13 +537,13 @@ document.getElementById('appSettingsForm').addEventListener('submit', async (e) 
     const result = await window.electron.saveAppSettings({ quitOnClose });
     
     if (result.success) {
-      showSettingsStatus('Anwendungseinstellungen gespeichert!', 'success');
+      showSettingsStatus('Application settings saved!', 'success');
     } else {
-      showSettingsStatus('Fehler beim Speichern: ' + result.error, 'error');
+      showSettingsStatus('Error saving: ' + result.error, 'error');
     }
   } catch (error) {
     console.error('Error saving app settings:', error);
-    showSettingsStatus('Fehler beim Speichern: ' + error.message, 'error');
+    showSettingsStatus('Error saving: ' + error.message, 'error');
   }
 });
 

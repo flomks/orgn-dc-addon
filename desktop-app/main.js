@@ -318,7 +318,7 @@ function updateTrayMenu() {
       }
     },
     {
-      label: 'Activity löschen',
+      label: 'Clear Activity',
       click: () => {
         clearActivity();
       }
@@ -499,7 +499,7 @@ ipcMain.handle('get-autostart', () => {
       return { 
         enabled: false, 
         isDevelopment: true,
-        message: 'Autostart ist nur in der installierten Version verfügbar. Im Entwicklungsmodus (npm run app) funktioniert Autostart nicht sinnvoll.'
+        message: 'Autostart is only available in the installed version. In development mode (npm run app), autostart does not work properly.'
       };
     }
     return { enabled: app.getLoginItemSettings().openAtLogin, isDevelopment: false };
