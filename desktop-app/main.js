@@ -243,7 +243,11 @@ async function clearActivity() {
 function startWebSocketServer() {
   wss = new WebSocketServer({ port: WS_PORT, host: '127.0.0.1' });
   
-  addLog('INFO', `WebSocket server started on ws://127.0.0.1:${WS_PORT}`);
+  wss.on('listening', () => {
+    console.log(`\n  ORGN Discord Bridge`);
+    console.log(`  WebSocket server listening on ws://127.0.0.1:${WS_PORT}\n`);
+    addLog('INFO', `WebSocket server started on ws://127.0.0.1:${WS_PORT}`);
+  });
   
   wss.on('connection', (ws) => {
     wsClients.add(ws);
