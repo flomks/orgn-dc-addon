@@ -369,94 +369,92 @@
 </head>
 <body>
   <main id="mainContent" aria-busy="false">
-    <h1>Discord Rich Presence</h1>
+    <h1>ORGN Discord Bridge</h1>
 
-    <div id="loadingIndicator" class="loading-indicator hidden" aria-live="polite">
+    <div id="loadingIndicator" class="loading-indicator hidden">
       <div class="loading-spinner"></div>
       <span>Loading...</span>
     </div>
 
-    <div id="statusMessage" class="status hidden" role="alert" aria-live="polite"></div>
+    <div id="statusMessage" class="status hidden" role="alert"></div>
 
     <div class="section">
       <div class="current-site">
         <strong>Current Page:</strong>
-        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Loading...</div>
+        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Detecting...</div>
         <div id="currentTitle" style="font-size: 11px; color: #72767d; margin-top: 2px; font-style: italic;"></div>
       </div>
     </div>
 
-  <div class="section">
-    <div class="collapsible" id="configCollapsible">
-      <label style="margin: 0;">App Configuration</label>
-    </div>
-    <div class="collapsible-content" id="configContent">
-      <form id="appConfigForm">
-        <div class="form-group">
-          <label for="appName">App Name *</label>
-          <input type="text" id="appName" placeholder="e.g. YouTube" required>
-        </div>
-
-
-
-        <div class="form-group">
-          <label for="details">Details (optional)</label>
-          <input type="text" id="details" placeholder="e.g. Watching videos">
-        </div>
-
-        <div class="form-group">
-          <label for="state">State (optional)</label>
-          <input type="text" id="state" placeholder="e.g. Entertainment">
-        </div>
-
-        <div class="form-group">
-          <label for="largeImageKey">Large Image Key (optional)</label>
-          <input type="text" id="largeImageKey" placeholder="e.g. youtube_logo">
-          <div class="help-text">Asset name from your Discord Application</div>
-        </div>
-
-        <div class="form-group">
-          <label for="largeImageText">Large Image Text (optional)</label>
-          <input type="text" id="largeImageText" placeholder="e.g. YouTube">
-        </div>
-
-        <div class="form-group">
-          <label for="smallImageKey">Small Image Key (optional)</label>
-          <input type="text" id="smallImageKey" placeholder="e.g. playing">
-        </div>
-
-        <div class="form-group">
-          <label for="smallImageText">Small Image Text (optional)</label>
-          <input type="text" id="smallImageText" placeholder="e.g. Active">
-        </div>
-
-        <div class="form-group">
-          <div class="checkbox-group">
-            <input type="checkbox" id="enabled" checked>
-            <label for="enabled" style="margin: 0;">Enabled</label>
+    <div class="section">
+      <div class="collapsible" id="configCollapsible">
+        <label style="margin: 0;">App Configuration</label>
+      </div>
+      <div class="collapsible-content" id="configContent">
+        <form id="appConfigForm">
+          <div class="form-group">
+            <label for="appName">App Name *</label>
+            <input type="text" id="appName" placeholder="e.g. YouTube" required>
           </div>
-        </div>
 
-        <button type="submit" class="button secondary">Add/Update Site</button>
-      </form>
+          <div class="form-group">
+            <label for="details">Details (optional)</label>
+            <input type="text" id="details" placeholder="e.g. Watching videos">
+          </div>
+
+          <div class="form-group">
+            <label for="state">State (optional)</label>
+            <input type="text" id="state" placeholder="e.g. Entertainment">
+          </div>
+
+          <div class="form-group">
+            <label for="largeImageKey">Large Image Key (optional)</label>
+            <input type="text" id="largeImageKey" placeholder="e.g. youtube_logo">
+            <div class="help-text">Asset name from your Discord Application</div>
+          </div>
+
+          <div class="form-group">
+            <label for="largeImageText">Large Image Text (optional)</label>
+            <input type="text" id="largeImageText" placeholder="e.g. YouTube">
+          </div>
+
+          <div class="form-group">
+            <label for="smallImageKey">Small Image Key (optional)</label>
+            <input type="text" id="smallImageKey" placeholder="e.g. playing">
+          </div>
+
+          <div class="form-group">
+            <label for="smallImageText">Small Image Text (optional)</label>
+            <input type="text" id="smallImageText" placeholder="e.g. Active">
+          </div>
+
+          <div class="form-group">
+            <div class="checkbox-group">
+              <input type="checkbox" id="enabled" checked>
+              <label for="enabled" style="margin: 0;">Enabled</label>
+            </div>
+          </div>
+
+          <button type="submit" class="button secondary">Save Configuration</button>
+        </form>
+      </div>
     </div>
-  </div>
 
-  <div class="section">
-    <div class="collapsible collapsed" id="appsCollapsible">
-      <label style="margin: 0;">Configured Apps</label>
+    <div class="section">
+      <div class="collapsible collapsed" id="appsCollapsible">
+        <label style="margin: 0;">Configured Apps</label>
+      </div>
+      <div class="collapsible-content hidden" id="appsContent">
+        <div id="appsList" class="app-list"></div>
+      </div>
     </div>
-    <div class="collapsible-content hidden" id="appsContent">
-      <div id="appsList" class="app-list"></div>
+
+    <div class="button-group">
+      <button id="testConnectionBtn" class="button">Test Connection</button>
+      <button id="clearActivityBtn" class="button danger">Clear Activity</button>
     </div>
-  </div>
 
-  <div class="button-group">
-    <button id="testConnectionBtn" class="button">Test Connection</button>
-    <button id="clearActivityBtn" class="button danger">Clear Activity</button>
-  </div>
-
-  <script src="popup.js"></script>
+    <script src="popup.js"></script>
   </main>
 </body>
 </html>

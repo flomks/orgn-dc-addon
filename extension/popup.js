@@ -1,77 +1,28 @@
 /**
- * Optimized popup logic with modern async patterns, better error handling,
- * improved accessibility, and enhanced user experience
+ * Popup controller for ORGN Discord Bridge extension.
+ * Manages site configuration, app list, and communication with the background service.
  */
-
 class PopupController {
   constructor() {
     this.currentTab = null;
     this.isLoading = false;
-    this.validationRules = this.setupValidationRules();
-    this.debounceTimers = new Map();
-    
     this.initializePopup();
   }
 
-  /**
-   * Setup validation rules for form fields
-   */
-  setupValidationRules() {
-    return {
-      appName: {
-        required: true,
-        minLength: 1,
-        maxLength: 64,
-        message: 'App name is required (1-64 characters)'
-      },
-      details: {
-        maxLength: 128,
-        message: 'Details must be at most 128 characters'
-      },
-      state: {
-        maxLength: 128,
-        message: 'State must be at most 128 characters'
-      },
-      largeImageKey: {
-        maxLength: 32,
-        pattern: /^[a-z0-9_-]*$/i,
-        message: 'Large Image Key can only contain letters, numbers, _ and - (max 32 characters)'
-      },
-      largeImageText: {
-        maxLength: 128,
-        message: 'Large Image Text must be at most 128 characters'
-      },
-      smallImageKey: {
-        maxLength: 32,
-        pattern: /^[a-z0-9_-]*$/i,
-        message: 'Small Image Key can only contain letters, numbers, _ and - (max 32 characters)'
-      },
-      smallImageText: {
-        maxLength: 128,
-        message: 'Small Image Text must be at most 128 characters'
-      }
-    };
-  }
+  // ── Initialization ──────────────────────────────────────────────
 
-  /**
-   * Initialize popup with error boundary
-   */
   async initializePopup() {
     try {
       this.setLoadingState(true);
-      
-      // Check desktop app connection first
+
       await this.checkDesktopAppConnection();
-      
+
       await Promise.all([
         this.loadCurrentTab(),
         this.loadAppsList()
       ]);
-      
+
       this.setupEventListeners();
-      this.setupAccessibility();
-      this.setupRealTimeValidation();
-      
     } catch (error) {
       console.error('Error initializing popup:', error);
       this.showStatus('Error loading extension', 'error');
@@ -80,13 +31,17 @@ class PopupController {
     }
   }
 
-  /**
-   * Check if the desktop app is running and connected
-   */
+  setLoadingState(loading) {
+    this.isLoading = loading;
+    const indicator = document.getElementById('loadingIndicator');
+    if (indicator) {
+      indicator.classList.toggle('hidden', !loading);
+    }
+  }
+
   async checkDesktopAppConnection() {
     try {
-      const response = await this.sendRuntimeMessage({ type: 'getConnectionStatus' }, 2000);
-      
+      const response = await this.sendMessage({ type: 'getConnectionStatus' }, 2000);
       if (!response || !response.desktopAppConnected) {
         this.showDesktopAppWarning();
       }
@@ -95,491 +50,304 @@ class PopupController {
     }
   }
 
-  /**
-   * Show warning that desktop app is not running
-   */
   showDesktopAppWarning() {
-    const statusEl = document.getElementById('statusMessage');
-    if (!statusEl) return;
-    
-    statusEl.innerHTML = '<strong>Desktop app not running!</strong><br><small>Start the ORGN Discord Bridge desktop app first (npm run app)</small>';
-    statusEl.className = 'status error';
-    statusEl.classList.remove('hidden');
-    statusEl.setAttribute('role', 'alert');
+    const el = document.getElementById('statusMessage');
+    if (!el) return;
+    el.innerHTML = '<strong>Desktop app not running!</strong><br><small>Start the ORGN Discord Bridge app first.</small>';
+    el.className = 'status error';
+    el.classList.remove('hidden');
   }
 
-  /**
-   * Set loading state with visual feedback
-   */
-  setLoadingState(loading) {
-    this.isLoading = loading;
-    const loadingIndicator = document.getElementById('loadingIndicator');
-    const mainContent = document.getElementById('mainContent');
-    
-    if (loading) {
-      if (loadingIndicator) loadingIndicator.classList.remove('hidden');
-      if (mainContent) mainContent.setAttribute('aria-busy', 'true');
-    } else {
-      if (loadingIndicator) loadingIndicator.classList.add('hidden');
-      if (mainContent) mainContent.setAttribute('aria-busy', 'false');
-    }
-  }
+  // ── Current Tab ─────────────────────────────────────────────────
 
-  /**
-   * Load current tab with enhanced error handling
-   */
   async loadCurrentTab() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
       if (!tab || !tab.url) {
-        throw new Error('No active page found');
+        this.setCurrentSite('No page detected', '');
+        return;
       }
 
       this.currentTab = tab;
       const url = new URL(tab.url);
-      
-      this.updateCurrentSiteDisplay(url.hostname, tab.title);
+      this.setCurrentSite(url.hostname, tab.title);
       await this.loadExistingConfig(url.hostname);
-      
     } catch (error) {
       console.error('Error loading current tab:', error);
-      this.showStatus('Error loading current page', 'error');
-      this.updateCurrentSiteDisplay('Unknown', 'Error loading');
+      this.setCurrentSite('Error', '');
     }
   }
 
-  /**
-   * Update current site display with better formatting
-   */
-  updateCurrentSiteDisplay(hostname, title) {
-    const urlElement = document.getElementById('currentUrl');
-    const titleElement = document.getElementById('currentTitle');
-    
-    if (urlElement) {
-      urlElement.textContent = hostname;
-      urlElement.title = hostname; // Accessibility
-    }
-    
-    if (titleElement) {
-      titleElement.textContent = title;
-      titleElement.title = title; // Accessibility
-    }
+  setCurrentSite(hostname, title) {
+    const urlEl = document.getElementById('currentUrl');
+    const titleEl = document.getElementById('currentTitle');
+    if (urlEl) urlEl.textContent = hostname;
+    if (titleEl) titleEl.textContent = title || '';
   }
 
-  /**
-   * Load existing configuration for current site
-   */
   async loadExistingConfig(hostname) {
     try {
-      const result = await this.getStorageData(['apps'], {});
-      const apps = result.apps || {};
-      
-      const config = this.findMatchingConfig(hostname, apps);
+      const data = await this.getStorage(['apps']);
+      const apps = data.apps || {};
+      const config = this.findConfig(hostname, apps);
       if (config) {
         this.populateForm(config);
         this.showStatus('Existing configuration loaded', 'info');
       }
     } catch (error) {
-      console.error('Error loading existing config:', error);
+      console.error('Error loading config:', error);
     }
   }
 
-  /**
-   * Find matching configuration with improved pattern matching
-   */
-  findMatchingConfig(hostname, apps) {
-    // Try exact match first
-    if (apps[hostname]) {
-      return apps[hostname];
-    }
-    
-    // Try subdomain match
+  findConfig(hostname, apps) {
+    if (apps[hostname]) return apps[hostname];
     for (const [pattern, config] of Object.entries(apps)) {
-      if (hostname.endsWith('.' + pattern) || pattern.includes(hostname) || hostname.includes(pattern)) {
+      if (hostname.endsWith('.' + pattern) || hostname.includes(pattern) || pattern.includes(hostname)) {
         return config;
       }
     }
-    
     return null;
   }
 
-  /**
-   * Populate form with configuration data
-   */
   populateForm(config) {
     const fields = ['appName', 'details', 'state', 'largeImageKey', 'largeImageText', 'smallImageKey', 'smallImageText'];
-    
-    fields.forEach(field => {
-      const element = document.getElementById(field);
-      if (element && config[field] !== undefined) {
-        element.value = config[field];
-        this.validateField(element); // Validate on load
-      }
+    fields.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && config[id] !== undefined) el.value = config[id];
     });
-    
-    const enabledElement = document.getElementById('enabled');
-    if (enabledElement) {
-      enabledElement.checked = config.enabled !== false;
-    }
+    const enabled = document.getElementById('enabled');
+    if (enabled) enabled.checked = config.enabled !== false;
   }
 
-  /**
-   * Load apps list with better error handling and empty state
-   */
+  // ── Apps List ───────────────────────────────────────────────────
+
   async loadAppsList() {
+    const container = document.getElementById('appsList');
+    if (!container) return;
+
     try {
-      const result = await this.getStorageData(['apps'], {});
-      const apps = result.apps || {};
-      const appsList = document.getElementById('appsList');
-      
-      if (!appsList) return;
-      
-      if (Object.keys(apps).length === 0) {
-        this.renderEmptyAppsState(appsList);
+      const data = await this.getStorage(['apps']);
+      const apps = data.apps || {};
+      const entries = Object.entries(apps).sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+
+      if (entries.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">+</div>
+            <div class="empty-state-title">No apps configured yet</div>
+            <div class="empty-state-text">Fill in the form above and click "Save" to add this site.</div>
+          </div>`;
         return;
       }
-      
-      this.renderAppsList(apps, appsList);
-      
-    } catch (error) {
-      console.error('Error loading apps list:', error);
-      const appsListElement = document.getElementById('appsList');
-      if (appsListElement) {
-        appsListElement.innerHTML = '<div class="error-state">Error loading apps</div>';
-      }
-    }
-  }
 
-  /**
-   * Render empty apps state
-   */
-  renderEmptyAppsState(container) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">🎮</div>
-        <div class="empty-state-title">No apps configured</div>
-        <div class="empty-state-text">
-          Add your first web app, indem Sie das Formular oben ausfüllen.
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Render apps list with improved accessibility
-   */
-  renderAppsList(apps, container) {
-    const appsArray = Object.entries(apps).sort((a, b) => a[1].name?.localeCompare(b[1].name) || 0);
-    
-    container.innerHTML = appsArray.map(([pattern, config]) => `
-      <div class="app-item" role="listitem">
-        <div class="app-item-info">
-          <div class="app-item-name">${this.escapeHtml(config.name || 'Unbenannt')}</div>
-          <div class="app-item-url" title="${this.escapeHtml(pattern)}">${this.escapeHtml(pattern)}</div>
-          <div class="app-item-status ${config.enabled !== false ? 'enabled' : 'disabled'}">
-            ${config.enabled !== false ? '✅ Enabled' : '❌ Disabled'}
+      container.innerHTML = entries.map(([pattern, config]) => `
+        <div class="app-item" role="listitem">
+          <div class="app-item-info">
+            <div class="app-item-name">${this.esc(config.name || pattern)}</div>
+            <div class="app-item-url">${this.esc(pattern)}</div>
+            <div class="app-item-status ${config.enabled !== false ? 'enabled' : 'disabled'}">
+              ${config.enabled !== false ? 'Active' : 'Disabled'}
+            </div>
           </div>
-        </div>
-        <div class="app-item-actions">
-          <button 
-            class="icon-button edit" 
-            data-pattern="${this.escapeHtml(pattern)}" 
-            title="Edit app"
-            aria-label="App ${this.escapeHtml(config.name || pattern)} bearbeiten"
-          >
-            ✏️
-          </button>
-          <button 
-            class="icon-button danger" 
-            data-pattern="${this.escapeHtml(pattern)}"
-            title="Delete app"
-            aria-label="App ${this.escapeHtml(config.name || pattern)} löschen"
-          >
-            🗑️
-          </button>
-        </div>
-      </div>
-    `).join('');
-    
-    // Add event listeners to buttons
-    container.querySelectorAll('.icon-button.edit').forEach(button => {
-      button.addEventListener('click', (e) => this.editApp(e.target.dataset.pattern));
-    });
-    
-    container.querySelectorAll('.icon-button.danger').forEach(button => {
-      button.addEventListener('click', (e) => this.deleteApp(e.target.dataset.pattern));
-    });
-  }
+          <div class="app-item-actions">
+            <button class="icon-button" data-action="edit" data-pattern="${this.esc(pattern)}" title="Edit">Edit</button>
+            <button class="icon-button danger" data-action="delete" data-pattern="${this.esc(pattern)}" title="Delete">Del</button>
+          </div>
+        </div>`).join('');
 
-  /**
-   * Setup comprehensive event listeners
-   */
-  setupEventListeners() {
-    // Form submission with enhanced validation
-    const form = document.getElementById('appConfigForm');
-    if (form) {
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await this.saveAppConfig();
+      container.querySelectorAll('[data-action="edit"]').forEach(btn => {
+        btn.addEventListener('click', () => this.editApp(btn.dataset.pattern));
       });
+      container.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => this.deleteApp(btn.dataset.pattern));
+      });
+    } catch (error) {
+      console.error('Error loading apps:', error);
+      container.innerHTML = '<div class="empty-state">Error loading apps</div>';
     }
-    
-    // Button event listeners with loading states
-    this.setupButtonListeners();
-    
-    // Collapsible sections
-    this.setupCollapsibleSections();
-    
-    // Keyboard shortcuts
-    this.setupKeyboardShortcuts();
   }
 
-  /**
-   * Setup button listeners with loading states
-   */
-  setupButtonListeners() {
-    const buttons = [
-      { id: 'testConnectionBtn', handler: this.testConnection.bind(this) },
-      { id: 'clearActivityBtn', handler: this.clearActivity.bind(this) },
-      { id: 'exportConfigBtn', handler: this.exportConfig.bind(this) },
-      { id: 'importConfigBtn', handler: this.importConfig.bind(this) }
-    ];
-    
-    buttons.forEach(({ id, handler }) => {
-      const button = document.getElementById(id);
-      if (button) {
-        button.addEventListener('click', async (e) => {
-          if (this.isLoading) return;
-          
-          this.setButtonLoading(button, true);
-          try {
-            await handler();
-          } finally {
-            this.setButtonLoading(button, false);
-          }
-        });
+  async editApp(pattern) {
+    try {
+      const data = await this.getStorage(['apps']);
+      const apps = data.apps || {};
+      const config = apps[pattern];
+      if (config) {
+        this.populateForm(config);
+        this.showStatus(`Editing: ${pattern}`, 'info');
+        // Scroll to form
+        document.getElementById('appConfigForm')?.scrollIntoView({ behavior: 'smooth' });
+        // Expand config section if collapsed
+        const header = document.getElementById('configCollapsible');
+        const content = document.getElementById('configContent');
+        if (header && content && header.classList.contains('collapsed')) {
+          header.classList.remove('collapsed');
+          content.classList.remove('hidden');
+        }
       }
-    });
-  }
-
-  /**
-   * Set button loading state
-   */
-  setButtonLoading(button, loading) {
-    if (loading) {
-      button.disabled = true;
-      button.dataset.originalText = button.textContent;
-      button.textContent = '⏳ Loading...';
-      button.setAttribute('aria-busy', 'true');
-    } else {
-      button.disabled = false;
-      button.textContent = button.dataset.originalText || button.textContent.replace('⏳ Loading...', '');
-      button.setAttribute('aria-busy', 'false');
+    } catch (error) {
+      console.error('Error editing app:', error);
     }
   }
 
-  /**
-   * Setup real-time field validation
-   */
-  setupRealTimeValidation() {
-    const formFields = document.querySelectorAll('#appConfigForm input, #appConfigForm textarea');
-    
-    formFields.forEach(field => {
-      // Validate on blur and input (with debounce)
-      field.addEventListener('blur', () => this.validateField(field));
-      field.addEventListener('input', () => this.debounceValidation(field));
-      
-      // Character counter for text fields
-      if (field.maxLength || this.validationRules[field.id]?.maxLength) {
-        this.setupCharacterCounter(field);
+  async deleteApp(pattern) {
+    if (!confirm(`Delete "${pattern}"?`)) return;
+
+    try {
+      const data = await this.getStorage(['apps']);
+      const apps = data.apps || {};
+      delete apps[pattern];
+      await chrome.storage.sync.set({ apps });
+      this.showStatus('App deleted', 'success');
+      await this.loadAppsList();
+
+      // Clear activity if this was the current site
+      if (this.currentTab?.url) {
+        const hostname = new URL(this.currentTab.url).hostname;
+        if (hostname.includes(pattern) || pattern.includes(hostname)) {
+          await this.sendMessage({ type: 'clearActivity' }).catch(() => {});
+        }
       }
-    });
-  }
-
-  /**
-   * Debounced validation for input events
-   */
-  debounceValidation(field) {
-    const key = field.id;
-    if (this.debounceTimers.has(key)) {
-      clearTimeout(this.debounceTimers.get(key));
+    } catch (error) {
+      console.error('Error deleting app:', error);
+      this.showStatus('Error deleting app', 'error');
     }
-    
-    const timer = setTimeout(() => {
-      this.validateField(field);
-      this.debounceTimers.delete(key);
-    }, 300);
-    
-    this.debounceTimers.set(key, timer);
   }
 
-  /**
-   * Validate individual field with visual feedback
-   */
-  validateField(field) {
-    const rule = this.validationRules[field.id];
-    if (!rule) return true;
-    
-    counter.textContent = `${field.value.length}/${maxLength}`;
-    fieldContainer.appendChild(counter);
-  }
+  // ── Save Configuration ──────────────────────────────────────────
 
-  /**
-   * Setup accessibility features
-   */
-  setupAccessibility() {
-    // ARIA labels and roles
-    const configForm = document.getElementById('appConfigForm');
-    if (configForm) {
-      configForm.setAttribute('aria-label', 'App Configuration');
-    }
-    
-    const appsList = document.getElementById('appsList');
-    if (appsList) {
-      appsList.setAttribute('role', 'list');
-      appsList.setAttribute('aria-label', 'List of configured apps');
-    }
-    
-    // Focus management
-    this.setupFocusManagement();
-    
-    // Keyboard navigation
-    this.setupKeyboardNavigation();
-  }
-
-  /**
-   * Setup keyboard shortcuts
-   */
-  setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-      // Ctrl/Cmd + Enter to save
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        this.saveAppConfig();
-      }
-      
-      // Escape to clear form
-      if (e.key === 'Escape') {
-        this.clearForm();
-      }
-    });
-  }
-
-  /**
-   * Save app configuration with comprehensive validation
-   */
   async saveAppConfig() {
-    if (!this.currentTab || !this.currentTab.url) {
+    if (!this.currentTab?.url) {
       this.showStatus('No active page found', 'error');
       return;
     }
-    
+
     try {
-      // Validate all fields
-      const formFields = document.querySelectorAll('#appConfigForm input, #appConfigForm textarea');
-      let isFormValid = true;
-      
-      formFields.forEach(field => {
-        if (!this.validateField(field)) {
-          isFormValid = false;
-        }
-      });
-      
-      if (!isFormValid) {
-        this.showStatus('Please correct the input errors', 'error');
+      const appName = document.getElementById('appName')?.value.trim();
+      if (!appName) {
+        this.showStatus('App Name is required', 'error');
+        document.getElementById('appName')?.focus();
         return;
       }
-      
-      const url = new URL(this.currentTab.url);
-      const hostname = url.hostname;
-      
-      const config = this.gatherFormData();
-      
-      // Save configuration
-      await this.saveAppConfigToStorage(hostname, config);
-      
-      this.showStatus('Configuration saved successfully!', 'success');
-      
-      // Reload apps list and notify background
+
+      const hostname = new URL(this.currentTab.url).hostname;
+      const config = {
+        name: appName,
+        enabled: document.getElementById('enabled')?.checked !== false
+      };
+
+      // Add optional fields (only if non-empty)
+      const optionalFields = ['details', 'state', 'largeImageKey', 'largeImageText', 'smallImageKey', 'smallImageText'];
+      optionalFields.forEach(id => {
+        const val = document.getElementById(id)?.value.trim();
+        if (val) config[id] = val;
+      });
+
+      // Save to storage
+      const data = await this.getStorage(['apps']);
+      const apps = data.apps || {};
+
+      // Preserve existing clientId
+      if (apps[hostname]?.clientId) {
+        config.clientId = apps[hostname].clientId;
+      }
+
+      apps[hostname] = config;
+      await chrome.storage.sync.set({ apps });
+
+      this.showStatus('Configuration saved!', 'success');
       await Promise.all([
         this.loadAppsList(),
-        this.notifyBackgroundUpdate()
+        this.sendMessage({ type: 'updateActivity' }).catch(() => {})
       ]);
-      
     } catch (error) {
       console.error('Error saving config:', error);
       this.showStatus('Error saving: ' + error.message, 'error');
     }
   }
 
-  /**
-   * Gather form data with validation
-   */
-  gatherFormData() {
-    const config = {
-      name: document.getElementById('appName').value.trim(),
-      details: document.getElementById('details').value.trim(),
-      state: document.getElementById('state').value.trim(),
-      largeImageKey: document.getElementById('largeImageKey').value.trim(),
-      largeImageText: document.getElementById('largeImageText').value.trim(),
-      smallImageKey: document.getElementById('smallImageKey').value.trim(),
-      smallImageText: document.getElementById('smallImageText').value.trim(),
-      enabled: document.getElementById('enabled').checked
-    };
-    
-    // Remove empty strings
-    Object.keys(config).forEach(key => {
-      if (config[key] === '') {
-        delete config[key];
-      }
+  // ── Event Listeners ─────────────────────────────────────────────
+
+  setupEventListeners() {
+    // Form submit
+    const form = document.getElementById('appConfigForm');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.saveAppConfig();
+      });
+    }
+
+    // Buttons
+    const testBtn = document.getElementById('testConnectionBtn');
+    if (testBtn) testBtn.addEventListener('click', () => this.testConnection());
+
+    const clearBtn = document.getElementById('clearActivityBtn');
+    if (clearBtn) clearBtn.addEventListener('click', () => this.clearActivity());
+
+    // Collapsible sections
+    document.querySelectorAll('.collapsible').forEach(header => {
+      const contentId = header.id.replace('Collapsible', 'Content');
+      const content = document.getElementById(contentId);
+      if (!content) return;
+
+      header.addEventListener('click', () => {
+        const isCollapsed = header.classList.toggle('collapsed');
+        content.classList.toggle('hidden', isCollapsed);
+      });
     });
-    
-    return config;
   }
 
-  /**
-   * Save app configuration to storage
-   */
-  async saveAppConfigToStorage(hostname, config) {
+  // ── Actions ─────────────────────────────────────────────────────
+
+  async testConnection() {
     try {
-      // Get current apps from storage using the enhanced method with timeout and error handling
-      const storageData = await this.getStorageData(['apps'], {});
-      const apps = storageData.apps || {};
-      
-      // Preserve existing clientId for backward compatibility
-      if (apps[hostname] && apps[hostname].clientId) {
-        config.clientId = apps[hostname].clientId;
+      this.showStatus('Testing connection...', 'info');
+      const response = await this.sendMessage({ type: 'testConnection' });
+
+      if (response?.success) {
+        this.showStatus('Connected to desktop app!', 'success');
+      } else {
+        this.showStatus(response?.error || 'Desktop app not running.', 'error', 8000);
       }
-      
-      // Update apps configuration
-      apps[hostname] = config;
-      
-      // Save to storage
-      await chrome.storage.sync.set({ apps });
-      
-      console.log(`[Popup] Saved config for ${hostname}:`, config);
     } catch (error) {
-      console.error('[Popup] Error saving app config:', error);
-      throw error;
+      this.showStatus('Desktop app not reachable. Is it running?', 'error', 8000);
     }
   }
 
-  /**
-   * Enhanced storage operations with timeout and error handling
-   */
-  async getStorageData(keys, defaultValue = {}) {
+  async clearActivity() {
+    try {
+      const response = await this.sendMessage({ type: 'clearActivity' });
+      if (response?.success) {
+        this.showStatus('Activity cleared', 'success');
+      } else {
+        this.showStatus('Error clearing activity', 'error');
+      }
+    } catch (error) {
+      this.showStatus('Error: ' + error.message, 'error');
+    }
+  }
+
+  // ── Utilities ───────────────────────────────────────────────────
+
+  showStatus(message, type = 'info', duration = 4000) {
+    const el = document.getElementById('statusMessage');
+    if (!el) return;
+    el.textContent = message;
+    el.className = `status ${type}`;
+    el.classList.remove('hidden');
+    if (this._statusTimer) clearTimeout(this._statusTimer);
+    this._statusTimer = setTimeout(() => el.classList.add('hidden'), duration);
+  }
+
+  async getStorage(keys) {
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        console.warn('Storage operation timed out');
-        resolve(defaultValue);
-      }, 5000);
-      
+      const timeout = setTimeout(() => resolve({}), 5000);
       chrome.storage.sync.get(keys, (result) => {
         clearTimeout(timeout);
         if (chrome.runtime.lastError) {
           console.warn('Storage error:', chrome.runtime.lastError);
-          resolve(defaultValue);
+          resolve({});
         } else {
           resolve(result);
         }
@@ -587,57 +355,11 @@ class PopupController {
     });
   }
 
-  /**
-   * Test connection with enhanced feedback
-   */
-  async testConnection() {
-    try {
-      this.showStatus('Testing connection to desktop app...', 'info');
-      
-      const response = await this.sendRuntimeMessage({ type: 'testConnection' });
-      
-      if (response && response.success) {
-        this.showStatus('Connection to desktop app successful!', 'success');
-      } else {
-        const errorMsg = response?.error || 'Desktop app is not running. Please start it first.';
-        this.showStatus(errorMsg, 'error', 8000);
-      }
-    } catch (error) {
-      console.error('Error testing connection:', error);
-      this.showStatus('Desktop app not reachable. Is it running?', 'error', 8000);
-    }
-  }
-
-  /**
-   * Clear activity with confirmation
-   */
-  async clearActivity() {
-    try {
-      const response = await this.sendRuntimeMessage({ type: 'clearActivity' });
-      
-      if (response && response.success) {
-        this.showStatus('🧹 Activity cleared', 'success');
-      } else {
-        throw new Error('Error clearing activity');
-      }
-    } catch (error) {
-      console.error('Error clearing activity:', error);
-      this.showStatus('Error: ' + error.message, 'error');
-    }
-  }
-
-  /**
-   * Enhanced runtime message sending with timeout
-   */
-  async sendRuntimeMessage(message, timeout = 5000) {
+  async sendMessage(message, timeout = 5000) {
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error('Message timeout'));
-      }, timeout);
-      
+      const timer = setTimeout(() => reject(new Error('Timeout')), timeout);
       chrome.runtime.sendMessage(message, (response) => {
-        clearTimeout(timeoutId);
-        
+        clearTimeout(timer);
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
         } else {
@@ -647,221 +369,16 @@ class PopupController {
     });
   }
 
-  /**
-   * Delete app with confirmation
-   */
-  async deleteApp(pattern) {
-    if (!confirm(`App "${pattern}" really delete?`)) {
-      return;
-    }
-    
-    try {
-      const result = await this.getStorageData(['apps'], {});
-      const apps = result.apps || {};
-      delete apps[pattern];
-      
-      await chrome.storage.sync.set({ apps });
-      
-      this.showStatus('App deleted', 'success');
-      await this.loadAppsList();
-      
-      // Clear activity if it was the current site
-      if (this.currentTab && this.currentTab.url) {
-        const url = new URL(this.currentTab.url);
-        if (url.hostname.includes(pattern) || pattern.includes(url.hostname)) {
-          await this.sendRuntimeMessage({ type: 'clearActivity' });
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting app:', error);
-      this.showStatus('Error deleting', 'error');
-    }
-  }
-
-  /**
-   * Show enhanced status message with accessibility
-   */
-  showStatus(message, type = 'info', duration = 4000) {
-    const statusEl = document.getElementById('statusMessage');
-    if (!statusEl) return;
-    
-    statusEl.textContent = message;
-    statusEl.className = `status ${type}`;
-    statusEl.classList.remove('hidden');
-    statusEl.setAttribute('role', 'alert');
-    statusEl.setAttribute('aria-live', 'polite');
-    
-    // Auto-hide after duration
-    setTimeout(() => {
-      statusEl.classList.add('hidden');
-      statusEl.removeAttribute('role');
-    }, duration);
-  }
-
-  /**
-   * Notify background script of updates
-   */
-  async notifyBackgroundUpdate() {
-    try {
-      await this.sendRuntimeMessage({ type: 'updateActivity' });
-    } catch (error) {
-      console.warn('Could not notify background of update:', error);
-    }
-  }
-
-  /**
-   * HTML escape utility
-   */
-  escapeHtml(text) {
+  esc(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
-
-  /**
-   * Clear form with confirmation
-   */
-  clearForm() {
-    if (!confirm('Really reset form?')) {
-      return;
-    }
-    
-    document.getElementById('appConfigForm').reset();
-    
-    // Clear validation states
-    document.querySelectorAll('.form-group').forEach(group => {
-      group.classList.remove('field-valid', 'field-invalid');
-    });
-    
-    document.querySelectorAll('.field-error').forEach(error => {
-      error.remove();
-    });
-  }
-
-  /**
-   * Setup collapsible sections with accessibility
-   */
-  setupCollapsibleSections() {
-    const collapsibles = document.querySelectorAll('.collapsible');
-    
-    collapsibles.forEach(collapsible => {
-      const contentId = collapsible.id.replace('Collapsible', 'Content');
-      const content = document.getElementById(contentId);
-      
-      if (content) {
-        // Setup ARIA attributes
-        collapsible.setAttribute('aria-expanded', !collapsible.classList.contains('collapsed'));
-        collapsible.setAttribute('aria-controls', contentId);
-        content.setAttribute('aria-labelledby', collapsible.id);
-        
-        collapsible.addEventListener('click', () => {
-          this.toggleCollapsible(collapsible.id, contentId);
-        });
-      }
-    });
-  }
-
-  /**
-   * Toggle collapsible section with animation and accessibility
-   */
-  toggleCollapsible(headerId, contentId) {
-    const header = document.getElementById(headerId);
-    const content = document.getElementById(contentId);
-    
-    if (!header || !content) return;
-    
-    const isCollapsed = header.classList.contains('collapsed');
-    
-    header.classList.toggle('collapsed');
-    content.classList.toggle('hidden');
-    
-    // Update ARIA attributes
-    header.setAttribute('aria-expanded', isCollapsed);
-    
-    // Smooth animation
-    if (isCollapsed) {
-      content.style.maxHeight = content.scrollHeight + 'px';
-      requestAnimationFrame(() => {
-        content.style.maxHeight = 'none';
-      });
-    } else {
-      content.style.maxHeight = content.scrollHeight + 'px';
-      requestAnimationFrame(() => {
-        content.style.maxHeight = '0px';
-      });
-    }
-  }
-
-  /**
-   * Setup focus management for better accessibility
-   */
-  setupFocusManagement() {
-    // Focus first input on load
-    const firstInput = document.querySelector('#appConfigForm input');
-    if (firstInput) {
-      firstInput.focus();
-    }
-    
-    // Trap focus in popup
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab') {
-        this.handleTabNavigation(e);
-      }
-    });
-  }
-
-  /**
-   * Handle tab navigation within popup
-   */
-  handleTabNavigation(e) {
-    const focusableElements = document.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    
-    const firstElement = focusableElements[0];
-    const lastElement = focusableElements[focusableElements.length - 1];
-    
-    if (e.shiftKey && document.activeElement === firstElement) {
-      e.preventDefault();
-      lastElement.focus();
-    } else if (!e.shiftKey && document.activeElement === lastElement) {
-      e.preventDefault();
-      firstElement.focus();
-    }
-  }
-
-  /**
-   * Setup keyboard navigation for app list
-   */
-  setupKeyboardNavigation() {
-    document.addEventListener('keydown', (e) => {
-      const appItems = document.querySelectorAll('.app-item button');
-      const currentIndex = Array.from(appItems).indexOf(document.activeElement);
-      
-      if (currentIndex === -1) return;
-      
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          const nextIndex = (currentIndex + 1) % appItems.length;
-          appItems[nextIndex].focus();
-          break;
-          
-        case 'ArrowUp':
-          e.preventDefault();
-          const prevIndex = (currentIndex - 1 + appItems.length) % appItems.length;
-          appItems[prevIndex].focus();
-          break;
-      }
-    });
-  }
 }
 
-// Initialize popup when DOM is ready
+// Start
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    new PopupController();
-  });
+  document.addEventListener('DOMContentLoaded', () => new PopupController());
 } else {
   new PopupController();
 }
