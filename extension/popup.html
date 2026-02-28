@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord Rich Presence</title>
+  <title>ORGN Discord Bridge</title>
   <style>
     * {
       margin: 0;
@@ -13,72 +13,173 @@
 
     body {
       width: 420px;
-      min-height: 300px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: #2c2f33;
+      min-height: 500px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #000000;
       color: #ffffff;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* === Header === */
+    .header {
+      padding: 20px;
+      border-bottom: 1px solid #27272a;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 4px;
+    }
+
+    .header-subtitle {
+      font-size: 12px;
+      color: #71717a;
+    }
+
+    /* === Content === */
+    .content {
       padding: 16px;
+    }
+
+    /* === Status Messages === */
+    #loadingIndicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      color: #a1a1aa;
+      font-size: 13px;
+    }
+
+    .loading-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #3b82f6;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #statusMessage {
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
       line-height: 1.5;
     }
 
-    h1 {
-      font-size: 18px;
-      margin-bottom: 16px;
-      color: #7289da;
+    #statusMessage.success {
+      background: rgba(34, 197, 94, 0.1);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.2);
     }
 
+    #statusMessage.error {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    #statusMessage.info {
+      background: rgba(59, 130, 246, 0.1);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    /* === Cards/Sections === */
     .section {
-      background: #23272a;
-      border-radius: 8px;
-      padding: 12px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 12px;
+      padding: 16px;
       margin-bottom: 12px;
     }
 
-    .current-site {
+    .section-title {
       font-size: 14px;
-      margin-bottom: 8px;
-    }
-
-    .current-site strong {
-      color: #7289da;
-    }
-
-    .form-group {
+      font-weight: 600;
+      color: #ffffff;
       margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* === Current Site === */
+    .current-site-label {
+      font-size: 12px;
+      color: #71717a;
+      margin-bottom: 6px;
+    }
+
+    .current-site-url {
+      font-size: 14px;
+      color: #ffffff;
+      font-weight: 500;
+    }
+
+    .current-site-title {
+      font-size: 12px;
+      color: #a1a1aa;
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    /* === Forms === */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
     }
 
     label {
       display: block;
-      font-size: 12px;
-      color: #b9bbbe;
-      margin-bottom: 4px;
+      font-size: 13px;
       font-weight: 500;
+      color: #ffffff;
+      margin-bottom: 6px;
     }
 
     input[type="text"],
-    input[type="url"],
     textarea {
       width: 100%;
-      padding: 8px;
-      background: #2c2f33;
-      border: 1px solid #202225;
-      border-radius: 4px;
+      padding: 10px 12px;
+      background: #000000;
+      border: 1px solid #27272a;
+      border-radius: 8px;
       color: #ffffff;
       font-size: 14px;
       font-family: inherit;
+      transition: border-color 0.2s;
     }
 
     input:focus,
     textarea:focus {
       outline: none;
-      border-color: #7289da;
+      border-color: #3b82f6;
     }
 
-    textarea {
-      resize: vertical;
-      min-height: 60px;
+    input::placeholder,
+    textarea::placeholder {
+      color: #71717a;
     }
 
+    .help-text {
+      font-size: 11px;
+      color: #71717a;
+      margin-top: 4px;
+    }
+
+    /* === Checkbox === */
     .checkbox-group {
       display: flex;
       align-items: center;
@@ -89,39 +190,71 @@
       width: 18px;
       height: 18px;
       cursor: pointer;
+      accent-color: #3b82f6;
     }
 
-    .button {
-      width: 100%;
-      padding: 10px;
-      background: #7289da;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 14px;
-      font-weight: 600;
+    .checkbox-group label {
+      margin: 0;
       cursor: pointer;
-      transition: background 0.2s;
+      font-size: 14px;
     }
 
-    .button:hover {
-      background: #5b6eae;
+    /* === Buttons === */
+    .btn {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
 
-    .button.secondary {
-      background: #43b581;
+    .btn-primary {
+      background: #3b82f6;
+      color: #ffffff;
     }
 
-    .button.secondary:hover {
-      background: #369968;
+    .btn-primary:hover {
+      background: #2563eb;
     }
 
-    .button.danger {
-      background: #f04747;
+    .btn-secondary {
+      background: #18181b;
+      color: #ffffff;
+      border: 1px solid #27272a;
     }
 
-    .button.danger:hover {
-      background: #d84040;
+    .btn-secondary:hover {
+      background: #27272a;
+    }
+
+    .btn-success {
+      background: #22c55e;
+      color: #ffffff;
+    }
+
+    .btn-success:hover {
+      background: #16a34a;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: #ffffff;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     .button-group {
@@ -131,330 +264,266 @@
       margin-top: 12px;
     }
 
-    .status {
-      font-size: 12px;
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 12px;
-      text-align: center;
-    }
-
-    .status.success {
-      background: #43b58133;
-      color: #43b581;
-    }
-
-    .status.error {
-      background: #f0474733;
-      color: #f04747;
-    }
-
-    .status.info {
-      background: #7289da33;
-      color: #7289da;
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    .help-text {
-      font-size: 11px;
-      color: #72767d;
-      margin-top: 4px;
-    }
-
+    /* === Collapsible === */
     .collapsible {
       cursor: pointer;
       user-select: none;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 2px 0;
     }
 
-    .collapsible::after {
-      content: '▼';
+    .collapsible-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .collapsible-icon {
       font-size: 10px;
+      color: #71717a;
       transition: transform 0.2s;
     }
 
-    .collapsible.collapsed::after {
+    .collapsible.collapsed .collapsible-icon {
       transform: rotate(-90deg);
     }
 
     .collapsible-content {
       margin-top: 12px;
       overflow: hidden;
-      transition: max-height 0.3s ease;
     }
 
+    /* === App List === */
     .app-list {
-      max-height: 200px;
+      max-height: 280px;
       overflow-y: auto;
     }
 
     .app-item {
-      background: #2c2f33;
-      padding: 8px;
-      border-radius: 4px;
+      background: #000000;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 12px;
       margin-bottom: 8px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      transition: border-color 0.2s;
+    }
+
+    .app-item:hover {
+      border-color: #3f3f46;
     }
 
     .app-item-info {
       flex: 1;
+      min-width: 0;
     }
 
     .app-item-name {
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 500;
       color: #ffffff;
+      margin-bottom: 2px;
     }
 
     .app-item-url {
       font-size: 11px;
-      color: #72767d;
+      color: #71717a;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app-item-status {
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .app-item-status.enabled {
+      color: #22c55e;
+    }
+
+    .app-item-status.disabled {
+      color: #71717a;
     }
 
     .app-item-actions {
       display: flex;
       gap: 4px;
+      margin-left: 12px;
     }
 
-    .icon-button {
+    .icon-btn {
       background: transparent;
-      border: none;
-      color: #b9bbbe;
+      border: 1px solid #27272a;
+      color: #a1a1aa;
       cursor: pointer;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-    }
-
-    .icon-button:hover {
-      background: #2c2f33;
-    }
-
-    .icon-button.danger:hover {
-      color: #f04747;
-    }
-
-    /* Loading states and accessibility improvements */
-    .loading-indicator {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      gap: 8px;
-    }
-
-    .loading-spinner {
-      width: 16px;
-      height: 16px;
-      border: 2px solid #7289da;
-      border-top: 2px solid transparent;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    /* Form validation styles */
-    .form-group.field-valid input,
-    .form-group.field-valid textarea {
-      border-color: #43b581;
-    }
-
-    .form-group.field-invalid input,
-    .form-group.field-invalid textarea {
-      border-color: #f04747;
-    }
-
-    .field-error {
-      color: #f04747;
+      padding: 6px 10px;
+      border-radius: 6px;
       font-size: 11px;
-      margin-top: 4px;
+      font-weight: 500;
+      transition: all 0.2s;
     }
 
-    .character-counter {
-      font-size: 10px;
-      color: #72767d;
-      text-align: right;
-      margin-top: 2px;
+    .icon-btn:hover {
+      background: #18181b;
+      color: #ffffff;
+      border-color: #3f3f46;
     }
 
-    .character-counter.warning {
-      color: #faa61a;
+    .icon-btn.danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      border-color: #ef4444;
     }
 
-    /* Empty state styling */
+    /* === Empty State === */
     .empty-state {
       text-align: center;
-      padding: 24px 16px;
-      color: #72767d;
+      padding: 32px 16px;
     }
 
     .empty-state-icon {
-      font-size: 32px;
+      font-size: 40px;
       margin-bottom: 12px;
+      opacity: 0.4;
     }
 
     .empty-state-title {
       font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #b9bbbe;
+      font-weight: 500;
+      color: #a1a1aa;
+      margin-bottom: 6px;
     }
 
     .empty-state-text {
       font-size: 12px;
-      line-height: 1.4;
+      color: #71717a;
+      line-height: 1.5;
     }
 
-    /* App item improvements */
-    .app-item-status {
-      font-size: 11px;
-      margin-top: 2px;
+    /* === Scrollbar === */
+    ::-webkit-scrollbar {
+      width: 6px;
     }
 
-    .app-item-status.enabled {
-      color: #43b581;
+    ::-webkit-scrollbar-track {
+      background: transparent;
     }
 
-    .app-item-status.disabled {
-      color: #f04747;
+    ::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
     }
 
-    /* Focus styles for better accessibility */
-    button:focus,
-    input:focus,
-    textarea:focus {
-      outline: 2px solid #7289da;
-      outline-offset: 2px;
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
     }
 
-    /* High contrast mode support */
-    @media (prefers-contrast: high) {
-      .status.success {
-        background: #ffffff;
-        color: #000000;
-      }
-      
-      .status.error {
-        background: #ffffff;
-        color: #000000;
-      }
-    }
-
-    /* Reduced motion support */
-    @media (prefers-reduced-motion: reduce) {
-      .loading-spinner {
-        animation: none;
-      }
-      
-      .collapsible::after {
-        transition: none;
-      }
-      
-      .collapsible-content {
-        transition: none;
-      }
+    /* === Utility === */
+    .hidden {
+      display: none !important;
     }
   </style>
 </head>
 <body>
-  <main id="mainContent" aria-busy="false">
+  <div class="header">
     <h1>ORGN Discord Bridge</h1>
+    <div class="header-subtitle">Discord Rich Presence for Web Apps</div>
+  </div>
 
-    <div id="loadingIndicator" class="loading-indicator hidden">
+  <div class="content">
+    <div id="loadingIndicator" class="hidden">
       <div class="loading-spinner"></div>
       <span>Loading...</span>
     </div>
 
-    <div id="statusMessage" class="status hidden" role="alert"></div>
+    <div id="statusMessage" class="hidden" role="alert"></div>
 
+    <!-- Current Page -->
     <div class="section">
-      <div class="current-site">
-        <strong>Current Page:</strong>
-        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Detecting...</div>
-        <div id="currentTitle" style="font-size: 11px; color: #72767d; margin-top: 2px; font-style: italic;"></div>
-      </div>
+      <div class="current-site-label">CURRENT PAGE</div>
+      <div class="current-site-url" id="currentUrl">Detecting...</div>
+      <div class="current-site-title" id="currentTitle"></div>
     </div>
 
+    <!-- Configuration Form -->
     <div class="section">
       <div class="collapsible" id="configCollapsible">
-        <label style="margin: 0;">App Configuration</label>
+        <span class="collapsible-label">Configuration</span>
+        <span class="collapsible-icon">▼</span>
       </div>
       <div class="collapsible-content" id="configContent">
         <form id="appConfigForm">
           <div class="form-group">
             <label for="appName">App Name *</label>
-            <input type="text" id="appName" placeholder="e.g. YouTube" required>
+            <input type="text" id="appName" placeholder="YouTube" required>
           </div>
 
           <div class="form-group">
-            <label for="details">Details (optional)</label>
-            <input type="text" id="details" placeholder="e.g. Watching videos">
+            <label for="details">Details</label>
+            <input type="text" id="details" placeholder="Watching videos">
           </div>
 
           <div class="form-group">
-            <label for="state">State (optional)</label>
-            <input type="text" id="state" placeholder="e.g. Entertainment">
+            <label for="state">State</label>
+            <input type="text" id="state" placeholder="Entertainment">
           </div>
 
           <div class="form-group">
-            <label for="largeImageKey">Large Image Key (optional)</label>
-            <input type="text" id="largeImageKey" placeholder="e.g. youtube_logo">
-            <div class="help-text">Asset name from your Discord Application</div>
+            <label for="largeImageKey">Large Image Key</label>
+            <input type="text" id="largeImageKey" placeholder="youtube_logo">
+            <div class="help-text">Asset name from Discord Application</div>
           </div>
 
           <div class="form-group">
-            <label for="largeImageText">Large Image Text (optional)</label>
-            <input type="text" id="largeImageText" placeholder="e.g. YouTube">
+            <label for="largeImageText">Large Image Text</label>
+            <input type="text" id="largeImageText" placeholder="YouTube">
           </div>
 
           <div class="form-group">
-            <label for="smallImageKey">Small Image Key (optional)</label>
-            <input type="text" id="smallImageKey" placeholder="e.g. playing">
+            <label for="smallImageKey">Small Image Key</label>
+            <input type="text" id="smallImageKey" placeholder="playing">
           </div>
 
           <div class="form-group">
-            <label for="smallImageText">Small Image Text (optional)</label>
-            <input type="text" id="smallImageText" placeholder="e.g. Active">
+            <label for="smallImageText">Small Image Text</label>
+            <input type="text" id="smallImageText" placeholder="Active">
           </div>
 
           <div class="form-group">
             <div class="checkbox-group">
               <input type="checkbox" id="enabled" checked>
-              <label for="enabled" style="margin: 0;">Enabled</label>
+              <label for="enabled">Enabled</label>
             </div>
           </div>
 
-          <button type="submit" class="button secondary">Save Configuration</button>
+          <button type="submit" class="btn btn-success">Save Configuration</button>
         </form>
       </div>
     </div>
 
+    <!-- Configured Apps -->
     <div class="section">
       <div class="collapsible collapsed" id="appsCollapsible">
-        <label style="margin: 0;">Configured Apps</label>
+        <span class="collapsible-label">Configured Apps</span>
+        <span class="collapsible-icon">▼</span>
       </div>
       <div class="collapsible-content hidden" id="appsContent">
         <div id="appsList" class="app-list"></div>
       </div>
     </div>
 
+    <!-- Actions -->
     <div class="button-group">
-      <button id="testConnectionBtn" class="button">Test Connection</button>
-      <button id="clearActivityBtn" class="button danger">Clear Activity</button>
+      <button id="testConnectionBtn" class="btn btn-secondary">Test Connection</button>
+      <button id="clearActivityBtn" class="btn btn-danger">Clear Activity</button>
     </div>
+  </div>
 
-    <script src="popup.js"></script>
-  </main>
+  <script src="popup.js"></script>
 </body>
 </html>
