@@ -22,33 +22,33 @@ class PopupController {
         required: true,
         minLength: 1,
         maxLength: 64,
-        message: 'App-Name ist erforderlich (1-64 Zeichen)'
+        message: 'App name is required (1-64 characters)'
       },
       details: {
         maxLength: 128,
-        message: 'Details dürfen maximal 128 Zeichen haben'
+        message: 'Details must be at most 128 characters'
       },
       state: {
         maxLength: 128,
-        message: 'State darf maximal 128 Zeichen haben'
+        message: 'State must be at most 128 characters'
       },
       largeImageKey: {
         maxLength: 32,
         pattern: /^[a-z0-9_-]*$/i,
-        message: 'Large Image Key darf nur Buchstaben, Zahlen, _ und - enthalten (max 32 Zeichen)'
+        message: 'Large Image Key can only contain letters, numbers, _ and - (max 32 characters)'
       },
       largeImageText: {
         maxLength: 128,
-        message: 'Large Image Text darf maximal 128 Zeichen haben'
+        message: 'Large Image Text must be at most 128 characters'
       },
       smallImageKey: {
         maxLength: 32,
         pattern: /^[a-z0-9_-]*$/i,
-        message: 'Small Image Key darf nur Buchstaben, Zahlen, _ und - enthalten (max 32 Zeichen)'
+        message: 'Small Image Key can only contain letters, numbers, _ and - (max 32 characters)'
       },
       smallImageText: {
         maxLength: 128,
-        message: 'Small Image Text darf maximal 128 Zeichen haben'
+        message: 'Small Image Text must be at most 128 characters'
       }
     };
   }
@@ -71,7 +71,7 @@ class PopupController {
       
     } catch (error) {
       console.error('Error initializing popup:', error);
-      this.showStatus('Fehler beim Laden der Erweiterung', 'error');
+      this.showStatus('Error loading extension', 'error');
     } finally {
       this.setLoadingState(false);
     }
@@ -102,7 +102,7 @@ class PopupController {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
       if (!tab || !tab.url) {
-        throw new Error('Keine aktive Seite gefunden');
+        throw new Error('No active page found');
       }
 
       this.currentTab = tab;
@@ -113,8 +113,8 @@ class PopupController {
       
     } catch (error) {
       console.error('Error loading current tab:', error);
-      this.showStatus('Fehler beim Laden der aktuellen Seite', 'error');
-      this.updateCurrentSiteDisplay('Unbekannt', 'Fehler beim Laden');
+      this.showStatus('Error loading current page', 'error');
+      this.updateCurrentSiteDisplay('Unknown', 'Error loading');
     }
   }
 
@@ -147,7 +147,7 @@ class PopupController {
       const config = this.findMatchingConfig(hostname, apps);
       if (config) {
         this.populateForm(config);
-        this.showStatus('Bestehende Konfiguration geladen', 'info');
+        this.showStatus('Existing configuration loaded', 'info');
       }
     } catch (error) {
       console.error('Error loading existing config:', error);
@@ -215,7 +215,7 @@ class PopupController {
       console.error('Error loading apps list:', error);
       const appsList = document.getElementById('appsList');
       if (appsList) {
-        appsList.innerHTML = '<div class="error-state">Fehler beim Laden der Apps</div>';
+        appsList.innerHTML = '<div class="error-state">Error loading apps</div>';
       }
     }
   }
@@ -227,9 +227,9 @@ class PopupController {
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">🎮</div>
-        <div class="empty-state-title">Keine Apps konfiguriert</div>
+        <div class="empty-state-title">No apps configured</div>
         <div class="empty-state-text">
-          Fügen Sie Ihre erste Web-App hinzu, indem Sie das Formular oben ausfüllen.
+          Add your first web app, indem Sie das Formular oben ausfüllen.
         </div>
       </div>
     `;
@@ -247,14 +247,14 @@ class PopupController {
           <div class="app-item-name">${this.escapeHtml(config.name || 'Unbenannt')}</div>
           <div class="app-item-url" title="${this.escapeHtml(pattern)}">${this.escapeHtml(pattern)}</div>
           <div class="app-item-status ${config.enabled !== false ? 'enabled' : 'disabled'}">
-            ${config.enabled !== false ? '✅ Aktiviert' : '❌ Deaktiviert'}
+            ${config.enabled !== false ? '✅ Enabled' : '❌ Disabled'}
           </div>
         </div>
         <div class="app-item-actions">
           <button 
             class="icon-button edit" 
             data-pattern="${this.escapeHtml(pattern)}" 
-            title="App bearbeiten"
+            title="Edit app"
             aria-label="App ${this.escapeHtml(config.name || pattern)} bearbeiten"
           >
             ✏️
@@ -262,7 +262,7 @@ class PopupController {
           <button 
             class="icon-button danger" 
             data-pattern="${this.escapeHtml(pattern)}"
-            title="App löschen"
+            title="Delete app"
             aria-label="App ${this.escapeHtml(config.name || pattern)} löschen"
           >
             🗑️
@@ -339,11 +339,11 @@ class PopupController {
     if (loading) {
       button.disabled = true;
       button.dataset.originalText = button.textContent;
-      button.textContent = '⏳ Lädt...';
+      button.textContent = '⏳ Loading...';
       button.setAttribute('aria-busy', 'true');
     } else {
       button.disabled = false;
-      button.textContent = button.dataset.originalText || button.textContent.replace('⏳ Lädt...', '');
+      button.textContent = button.dataset.originalText || button.textContent.replace('⏳ Loading...', '');
       button.setAttribute('aria-busy', 'false');
     }
   }
@@ -403,18 +403,18 @@ class PopupController {
     // Length validation
     if (isValid && rule.minLength && value.length < rule.minLength) {
       isValid = false;
-      message = `Mindestens ${rule.minLength} Zeichen erforderlich`;
+      message = `At least ${rule.minLength} characters required`;
     }
     
     if (isValid && rule.maxLength && value.length > rule.maxLength) {
       isValid = false;
-      message = `Maximal ${rule.maxLength} Zeichen erlaubt`;
+      message = `Maximum ${rule.maxLength} characters allowed`;
     }
     
     // Pattern validation
     if (isValid && rule.pattern && value && !rule.pattern.test(value)) {
       isValid = false;
-      message = rule.message || 'Ungültiges Format';
+      message = rule.message || 'Invalid format';
     }
     
     this.setFieldValidation(field, isValid, message);
@@ -491,13 +491,13 @@ class PopupController {
     // ARIA labels and roles
     const form = document.getElementById('appConfigForm');
     if (form) {
-      form.setAttribute('aria-label', 'App-Konfiguration');
+      form.setAttribute('aria-label', 'App Configuration');
     }
     
     const appsList = document.getElementById('appsList');
     if (appsList) {
       appsList.setAttribute('role', 'list');
-      appsList.setAttribute('aria-label', 'Liste der konfigurierten Apps');
+      appsList.setAttribute('aria-label', 'List of configured apps');
     }
     
     // Focus management
@@ -530,7 +530,7 @@ class PopupController {
    */
   async saveAppConfig() {
     if (!this.currentTab || !this.currentTab.url) {
-      this.showStatus('Keine aktive Seite gefunden', 'error');
+      this.showStatus('No active page found', 'error');
       return;
     }
     
@@ -546,7 +546,7 @@ class PopupController {
       });
       
       if (!isFormValid) {
-        this.showStatus('Bitte korrigieren Sie die Eingabefehler', 'error');
+        this.showStatus('Please correct the input errors', 'error');
         return;
       }
       
@@ -558,7 +558,7 @@ class PopupController {
       // Save configuration
       await this.saveAppConfigToStorage(hostname, config);
       
-      this.showStatus('Konfiguration erfolgreich gespeichert!', 'success');
+      this.showStatus('Configuration saved successfully!', 'success');
       
       // Reload apps list and notify background
       await Promise.all([
@@ -568,7 +568,7 @@ class PopupController {
       
     } catch (error) {
       console.error('Error saving config:', error);
-      this.showStatus('Fehler beim Speichern: ' + error.message, 'error');
+      this.showStatus('Error saving: ' + error.message, 'error');
     }
   }
 
@@ -640,18 +640,18 @@ class PopupController {
    */
   async testConnection() {
     try {
-      this.showStatus('Teste Verbindung...', 'info');
+      this.showStatus('Testing connection...', 'info');
       
       const response = await this.sendRuntimeMessage({ type: 'testConnection' });
       
       if (response && response.success) {
-        this.showStatus('✅ Verbindung erfolgreich!', 'success');
+        this.showStatus('✅ Connection successful!', 'success');
       } else {
         throw new Error('Keine Antwort vom Background-Script');
       }
     } catch (error) {
       console.error('Error testing connection:', error);
-      this.showStatus('❌ Verbindungsfehler: ' + error.message, 'error');
+      this.showStatus('❌ Connection error: ' + error.message, 'error');
     }
   }
 
@@ -663,13 +663,13 @@ class PopupController {
       const response = await this.sendRuntimeMessage({ type: 'clearActivity' });
       
       if (response && response.success) {
-        this.showStatus('🧹 Activity gelöscht', 'success');
+        this.showStatus('🧹 Activity cleared', 'success');
       } else {
-        throw new Error('Fehler beim Löschen der Activity');
+        throw new Error('Error clearing activity');
       }
     } catch (error) {
       console.error('Error clearing activity:', error);
-      this.showStatus('Fehler: ' + error.message, 'error');
+      this.showStatus('Error: ' + error.message, 'error');
     }
   }
 
@@ -698,7 +698,7 @@ class PopupController {
    * Delete app with confirmation
    */
   async deleteApp(pattern) {
-    if (!confirm(`App "${pattern}" wirklich löschen?`)) {
+    if (!confirm(`App "${pattern}" really delete?`)) {
       return;
     }
     
@@ -709,7 +709,7 @@ class PopupController {
       
       await chrome.storage.sync.set({ apps });
       
-      this.showStatus('App gelöscht', 'success');
+      this.showStatus('App deleted', 'success');
       await this.loadAppsList();
       
       // Clear activity if it was the current site
@@ -721,7 +721,7 @@ class PopupController {
       }
     } catch (error) {
       console.error('Error deleting app:', error);
-      this.showStatus('Fehler beim Löschen', 'error');
+      this.showStatus('Error deleting', 'error');
     }
   }
 
@@ -769,7 +769,7 @@ class PopupController {
    * Clear form with confirmation
    */
   clearForm() {
-    if (!confirm('Formular wirklich zurücksetzen?')) {
+    if (!confirm('Really reset form?')) {
       return;
     }
     

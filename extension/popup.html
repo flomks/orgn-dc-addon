@@ -373,78 +373,78 @@
 
     <div id="loadingIndicator" class="loading-indicator hidden" aria-live="polite">
       <div class="loading-spinner"></div>
-      <span>Lädt...</span>
+      <span>Loading...</span>
     </div>
 
     <div id="statusMessage" class="status hidden" role="alert" aria-live="polite"></div>
 
     <div class="section">
       <div class="current-site">
-        <strong>Aktuelle Seite:</strong>
-        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Lädt...</div>
+        <strong>Current Page:</strong>
+        <div id="currentUrl" style="font-size: 12px; color: #b9bbbe; margin-top: 4px;">Loading...</div>
         <div id="currentTitle" style="font-size: 11px; color: #72767d; margin-top: 2px; font-style: italic;"></div>
       </div>
     </div>
 
   <div class="section">
     <div class="collapsible" id="configCollapsible">
-      <label style="margin: 0;">App-Konfiguration</label>
+      <label style="margin: 0;">App Configuration</label>
     </div>
     <div class="collapsible-content" id="configContent">
       <form id="appConfigForm">
         <div class="form-group">
           <label for="appName">App Name *</label>
-          <input type="text" id="appName" placeholder="z.B. YouTube" required>
+          <input type="text" id="appName" placeholder="e.g. YouTube" required>
         </div>
 
 
 
         <div class="form-group">
           <label for="details">Details (optional)</label>
-          <input type="text" id="details" placeholder="z.B. Watching videos">
+          <input type="text" id="details" placeholder="e.g. Watching videos">
         </div>
 
         <div class="form-group">
           <label for="state">State (optional)</label>
-          <input type="text" id="state" placeholder="z.B. Entertainment">
+          <input type="text" id="state" placeholder="e.g. Entertainment">
         </div>
 
         <div class="form-group">
           <label for="largeImageKey">Large Image Key (optional)</label>
-          <input type="text" id="largeImageKey" placeholder="z.B. youtube_logo">
-          <div class="help-text">Asset-Name aus deiner Discord Application</div>
+          <input type="text" id="largeImageKey" placeholder="e.g. youtube_logo">
+          <div class="help-text">Asset name from your Discord Application</div>
         </div>
 
         <div class="form-group">
           <label for="largeImageText">Large Image Text (optional)</label>
-          <input type="text" id="largeImageText" placeholder="z.B. YouTube">
+          <input type="text" id="largeImageText" placeholder="e.g. YouTube">
         </div>
 
         <div class="form-group">
           <label for="smallImageKey">Small Image Key (optional)</label>
-          <input type="text" id="smallImageKey" placeholder="z.B. playing">
+          <input type="text" id="smallImageKey" placeholder="e.g. playing">
         </div>
 
         <div class="form-group">
           <label for="smallImageText">Small Image Text (optional)</label>
-          <input type="text" id="smallImageText" placeholder="z.B. Active">
+          <input type="text" id="smallImageText" placeholder="e.g. Active">
         </div>
 
         <div class="form-group">
           <div class="checkbox-group">
             <input type="checkbox" id="enabled" checked>
-            <label for="enabled" style="margin: 0;">Aktiviert</label>
+            <label for="enabled" style="margin: 0;">Enabled</label>
           </div>
         </div>
 
-        <button type="submit" class="button secondary">Seite hinzufügen/aktualisieren</button>
+        <button type="submit" class="button secondary">Add/Update Site</button>
       </form>
     </div>
   </div>
 
   <div class="section">
     <div class="collapsible collapsed" id="appsCollapsible">
-      <label style="margin: 0;">Konfigurierte Apps</label>
+      <label style="margin: 0;">Configured Apps</label>
     </div>
     <div class="collapsible-content hidden" id="appsContent">
       <div id="appsList" class="app-list"></div>
@@ -452,8 +452,8 @@
   </div>
 
   <div class="button-group">
-    <button id="testConnectionBtn" class="button">Test Verbindung</button>
-    <button id="clearActivityBtn" class="button danger">Activity löschen</button>
+    <button id="testConnectionBtn" class="button">Test Connection</button>
+    <button id="clearActivityBtn" class="button danger">Clear Activity</button>
   </div>
 
   <script src="popup.js"></script>
