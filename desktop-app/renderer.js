@@ -30,9 +30,11 @@ document.querySelectorAll('.nav-item').forEach(item => {
     Object.values(views).forEach(v => v.classList.remove('active'));
     views[viewName].classList.add('active');
     
-    // Handle settings view activation
+    // Handle view-specific activation logic
     if (viewName === 'settings') {
       await loadSettingsView();
+    } else if (viewName === 'test') {
+      await loadTestView();
     }
   });
 });
@@ -50,7 +52,14 @@ document.getElementById('clearActivityBtn').addEventListener('click', async () =
 
 document.getElementById('testConnectionBtn').addEventListener('click', async () => {
   setStatus('Testing connection...');
-  const clientId = document.getElementById('testClientId').value || '1234567890123456789';
+  
+  // Use input value or fall back to stored client ID
+  let clientId = document.getElementById('testClientId').value.trim();
+  if (!clientId) {
+    const storedClientId = await window.electron.getClientId();
+    clientId = storedClientId || '1234567890123456789';
+  }
+  
   const result = await window.electron.testConnection(clientId);
   if (result.success) {
     setStatus('Connection successful!');
@@ -70,8 +79,15 @@ document.getElementById('clearLogsBtn').addEventListener('click', async () => {
 document.getElementById('testForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   
+  // Use input value or fall back to stored client ID
+  let clientId = document.getElementById('testClientId').value.trim();
+  if (!clientId) {
+    const storedClientId = await window.electron.getClientId();
+    clientId = storedClientId;
+  }
+  
   const activityData = {
-    clientId: document.getElementById('testClientId').value,
+    clientId: clientId,
     activity: {
       details: document.getElementById('testDetails').value,
       state: document.getElementById('testState').value,
@@ -301,6 +317,25 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Test View Functions
+async function loadTestView() {
+  try {
+    // Load stored client ID and pre-fill the field
+    const storedClientId = await window.electron.getClientId();
+    const clientIdInput = document.getElementById('testClientId');
+    
+    if (storedClientId) {
+      clientIdInput.value = storedClientId;
+      clientIdInput.placeholder = storedClientId;
+    } else {
+      clientIdInput.value = '';
+      clientIdInput.placeholder = 'Keine ID in Settings gespeichert';
+    }
+  } catch (error) {
+    console.error('Error loading test view:', error);
+  }
+}
+
 // Settings View Functions
 async function loadSettingsView() {
   try {
@@ -315,6 +350,10 @@ async function loadSettingsView() {
       clientIdInput.value = '';
       document.getElementById('currentKeyStatus').textContent = 'No key stored';
     }
+    
+    // Load app settings
+    const appSettings = await window.electron.getAppSettings();
+    document.getElementById('quitOnClose').checked = appSettings.quitOnClose || false;
     
     // Update storage information
     updateStorageInfo();
@@ -452,6 +491,26 @@ document.getElementById('clearStoredKeyBtn').addEventListener('click', async () 
   }
 });
 
+// App Settings Form Handler
+document.getElementById('appSettingsForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  try {
+    const quitOnClose = document.getElementById('quitOnClose').checked;
+    
+    const result = await window.electron.saveAppSettings({ quitOnClose });
+    
+    if (result.success) {
+      showSettingsStatus('Anwendungseinstellungen gespeichert!', 'success');
+    } else {
+      showSettingsStatus('Fehler beim Speichern: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error saving app settings:', error);
+    showSettingsStatus('Fehler beim Speichern: ' + error.message, 'error');
+  }
+});
+
 // Initialize
 (async () => {
   // Load initial status
@@ -469,6 +528,9 @@ document.getElementById('clearStoredKeyBtn').addEventListener('click', async () 
   const logs = await window.electron.getLogs();
   logs.forEach(log => addLogEntry(log));
   updateLogCount();
+  
+  // Pre-load stored client ID for test view
+  await loadTestView();
   
   setStatus('Ready');
 })();

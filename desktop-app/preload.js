@@ -47,5 +47,7 @@ contextBridge.exposeInMainWorld('electron', {
   // Settings
   getClientId: () => ipcRenderer.invoke('get-client-id'),
   saveClientId: (clientId) => ipcRenderer.invoke('save-client-id', clientId),
-  getStorageInfo: () => ipcRenderer.invoke('get-storage-info')
+  getStorageInfo: () => ipcRenderer.invoke('get-storage-info'),
+  getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
+  saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings)
 });
