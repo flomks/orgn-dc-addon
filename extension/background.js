@@ -195,19 +195,12 @@ async function checkActiveTab() {
     let displayState = parsed.state || 'Active';
 
     if (hideNames) {
-      // Replace specific names with generic labels
-      if (parsed.state && parsed.state !== 'Browsing' && parsed.state !== 'Active') {
-        // State contains a name (e.g. trial name) -- hide it
-        displayState = 'Working';
+      // Replace specific names with "VibeCoding"
+      if (parsed.state && !['Browsing', 'Active'].includes(parsed.state)) {
+        displayState = 'VibeCoding';
       }
       if (parsed.details && !['Dashboard', 'Projects', 'Browsing', 'Working on Trial', 'Viewing Project'].includes(parsed.details)) {
-        // Details contains a name -- hide it
-        displayDetails = parsed.details.replace(/.+/, () => {
-          // Keep the activity type, just hide the name
-          if (parsed.details === 'Working on Trial') return 'Working on Trial';
-          if (parsed.details === 'Viewing Project') return 'Viewing Project';
-          return 'Working';
-        });
+        displayDetails = 'VibeCoding';
       }
     }
 
