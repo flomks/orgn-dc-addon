@@ -38,7 +38,7 @@ async function loadCurrentTab() {
     }
   } catch (error) {
     console.error('Error loading current tab:', error);
-    showStatus('Fehler beim Laden der aktuellen Seite', 'error');
+    showStatus('Error loading current page', 'error');
   }
 }
 
@@ -64,7 +64,7 @@ async function loadAppsList() {
           <div class="app-item-url">${pattern}</div>
         </div>
         <div class="app-item-actions">
-          <button class="icon-button danger" data-pattern="${pattern}">Löschen</button>
+          <button class="icon-button danger" data-pattern="${pattern}">Delete</button>
         </div>
       `;
       
@@ -169,7 +169,7 @@ async function saveAppConfig() {
     
   } catch (error) {
     console.error('Error saving config:', error);
-    showStatus('Fehler beim Speichern: ' + error.message, 'error');
+    showStatus('Error saving: ' + error.message, 'error');
   }
 }
 
@@ -182,7 +182,7 @@ async function deleteApp(pattern) {
     
     await chrome.storage.sync.set({ apps });
     
-    showStatus('App gelöscht', 'success');
+    showStatus('App deleted', 'success');
     await loadAppsList();
     
     // Clear activity if it was the current site
@@ -221,9 +221,9 @@ async function clearActivity() {
   try {
     chrome.runtime.sendMessage({ type: 'clearActivity' }, (response) => {
       if (chrome.runtime.lastError) {
-        showStatus('Fehler beim Löschen', 'error');
+        showStatus('Error deleting', 'error');
       } else {
-        showStatus('Activity gelöscht', 'success');
+        showStatus('Activity cleared', 'success');
       }
     });
   } catch (error) {

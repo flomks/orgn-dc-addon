@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -71,7 +71,7 @@
             <div id="discordInfo" class="discord-info">
               <div class="info-row">
                 <span class="label">Status:</span>
-                <span id="discordStatus" class="value">Nicht verbunden</span>
+                <span id="discordStatus" class="value">Not connected</span>
               </div>
               <div class="info-row">
                 <span class="label">User:</span>
@@ -83,7 +83,7 @@
           <section class="card">
             <h2>Current Activity</h2>
             <div id="currentActivity" class="activity-display">
-              <p class="empty-state">Keine Activity aktiv</p>
+              <p class="empty-state">No activity active</p>
             </div>
           </section>
 
@@ -137,8 +137,8 @@
             <form id="testForm" class="form">
               <div class="form-group">
                 <label for="testClientId">Discord Application ID (optional)</label>
-                <input type="text" id="testClientId" placeholder="Verwendet gespeicherte ID aus Settings">
-                <small>Leer lassen um die in den Settings gespeicherte Application ID zu verwenden. Alternativ eine spezifische ID zum Testen eingeben.</small>
+                <input type="text" id="testClientId" placeholder="Uses stored ID from Settings">
+                <small>Leave empty to use the Application ID stored in Settings. Alternatively, enter a specific ID for testing.</small>
               </div>
 
               <div class="form-group">
@@ -171,10 +171,10 @@
           <section class="card">
             <h3>Info</h3>
             <div class="info-box">
-              <p>Verwende diesen Bereich um Rich Presence Activities zu testen.</p>
-              <p>Die Activity wird in deinem Discord-Profil angezeigt.</p>
-              <p><strong>Hinweis:</strong> Discord Desktop App muss laufen!</p>
-              <p><strong>Application ID:</strong> Wenn du die Application ID leer lässt, wird automatisch die in den Settings gespeicherte ID verwendet. Du kannst hier aber auch eine andere ID zum Testen eingeben.</p>
+              <p>Use this area to test Rich Presence Activities.</p>
+              <p>The activity will be displayed in your Discord profile.</p>
+              <p><strong>Note:</strong> Discord Desktop App must be running!</p>
+              <p><strong>Application ID:</strong> If you leave the Application ID empty, the ID stored in Settings will be used automatically. You can also enter a different ID for testing here.</p>
             </div>
           </section>
         </div>
@@ -213,17 +213,17 @@
           </section>
 
           <section class="card">
-            <h3>Anwendungseinstellungen</h3>
+            <h3>Application Settings</h3>
             <form id="appSettingsForm" class="form">
               <div class="form-group">
                 <label class="checkbox-label">
                   <input type="checkbox" id="quitOnClose">
-                  <span>Anwendung beim Schließen beenden</span>
+                  <span>Quit application when closing</span>
                 </label>
-                <small>Wenn deaktiviert, wird die Anwendung nur minimiert und läuft im System Tray (ausgeblendete Symbole) weiter.</small>
+                <small>When disabled, the application will only minimize and continue running in the system tray (hidden icons).</small>
               </div>
 
-              <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
+              <button type="submit" class="btn btn-primary">Save Settings</button>
             </form>
           </section>
 
