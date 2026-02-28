@@ -213,9 +213,9 @@ class PopupController {
       
     } catch (error) {
       console.error('Error loading apps list:', error);
-      const appsList = document.getElementById('appsList');
-      if (appsList) {
-        appsList.innerHTML = '<div class="error-state">Error loading apps</div>';
+      const appsListElement = document.getElementById('appsList');
+      if (appsListElement) {
+        appsListElement.innerHTML = '<div class="error-state">Error loading apps</div>';
       }
     }
   }
@@ -390,98 +390,8 @@ class PopupController {
     const rule = this.validationRules[field.id];
     if (!rule) return true;
     
-    const value = field.value.trim();
-    let isValid = true;
-    let message = '';
-    
-    // Required validation
-    if (rule.required && !value) {
-      isValid = false;
-      message = rule.message || `${field.id} ist erforderlich`;
-    }
-    
-    // Length validation
-    if (isValid && rule.minLength && value.length < rule.minLength) {
-      isValid = false;
-      message = `At least ${rule.minLength} characters required`;
-    }
-    
-    if (isValid && rule.maxLength && value.length > rule.maxLength) {
-      isValid = false;
-      message = `Maximum ${rule.maxLength} characters allowed`;
-    }
-    
-    // Pattern validation
-    if (isValid && rule.pattern && value && !rule.pattern.test(value)) {
-      isValid = false;
-      message = rule.message || 'Invalid format';
-    }
-    
-    this.setFieldValidation(field, isValid, message);
-    return isValid;
-  }
-
-  /**
-   * Set field validation state with visual feedback
-   */
-  setFieldValidation(field, isValid, message) {
-    const container = field.closest('.form-group');
-    if (!container) return;
-    
-    // Remove existing validation classes
-    container.classList.remove('field-valid', 'field-invalid');
-    
-    // Remove existing error message
-    const existingError = container.querySelector('.field-error');
-    if (existingError) {
-      existingError.remove();
-    }
-    
-    if (!isValid && message) {
-      container.classList.add('field-invalid');
-      
-      const errorElement = document.createElement('div');
-      errorElement.className = 'field-error';
-      errorElement.textContent = message;
-      errorElement.setAttribute('role', 'alert');
-      
-      container.appendChild(errorElement);
-      field.setAttribute('aria-invalid', 'true');
-      field.setAttribute('aria-describedby', field.id + '-error');
-      errorElement.id = field.id + '-error';
-    } else {
-      if (field.value.trim()) {
-        container.classList.add('field-valid');
-      }
-      field.setAttribute('aria-invalid', 'false');
-      field.removeAttribute('aria-describedby');
-    }
-  }
-
-  /**
-   * Setup character counter for text fields
-   */
-  setupCharacterCounter(field) {
-    const container = field.closest('.form-group');
-    if (!container) return;
-    
-    const maxLength = field.maxLength || this.validationRules[field.id]?.maxLength;
-    if (!maxLength) return;
-    
-    const counter = document.createElement('div');
-    counter.className = 'character-counter';
-    counter.setAttribute('aria-live', 'polite');
-    
-    const updateCounter = () => {
-      const remaining = maxLength - field.value.length;
-      counter.textContent = `${field.value.length}/${maxLength}`;
-      counter.className = `character-counter ${remaining < 10 ? 'warning' : ''}`;
-    };
-    
-    field.addEventListener('input', updateCounter);
-    updateCounter();
-    
-    container.appendChild(counter);
+    counter.textContent = `${field.value.length}/${maxLength}`;
+    fieldContainer.appendChild(counter);
   }
 
   /**
@@ -489,9 +399,9 @@ class PopupController {
    */
   setupAccessibility() {
     // ARIA labels and roles
-    const form = document.getElementById('appConfigForm');
-    if (form) {
-      form.setAttribute('aria-label', 'App Configuration');
+    const configForm = document.getElementById('appConfigForm');
+    if (configForm) {
+      configForm.setAttribute('aria-label', 'App Configuration');
     }
     
     const appsList = document.getElementById('appsList');
@@ -601,16 +511,27 @@ class PopupController {
    * Save app configuration to storage
    */
   async saveAppConfigToStorage(hostname, config) {
-    const result = await this.getStorageData(['apps'], {});
-    const apps = result.apps || {};
-    
-    // Preserve existing clientId for backward compatibility
-    if (apps[hostname] && apps[hostname].clientId) {
-      config.clientId = apps[hostname].clientId;
+    try {
+      // Get current apps from storage using the enhanced method with timeout and error handling
+      const storageData = await this.getStorageData(['apps'], {});
+      const apps = storageData.apps || {};
+      
+      // Preserve existing clientId for backward compatibility
+      if (apps[hostname] && apps[hostname].clientId) {
+        config.clientId = apps[hostname].clientId;
+      }
+      
+      // Update apps configuration
+      apps[hostname] = config;
+      
+      // Save to storage
+      await chrome.storage.sync.set({ apps });
+      
+      console.log(`[Popup] Saved config for ${hostname}:`, config);
+    } catch (error) {
+      console.error('[Popup] Error saving app config:', error);
+      throw error;
     }
-    
-    apps[hostname] = config;
-    await chrome.storage.sync.set({ apps });
   }
 
   /**
