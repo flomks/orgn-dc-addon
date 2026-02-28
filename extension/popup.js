@@ -25,7 +25,6 @@ async function loadCurrentTab() {
         if (url.hostname.includes(pattern) || pattern.includes(url.hostname)) {
           // Load existing config
           document.getElementById('appName').value = config.name || '';
-          document.getElementById('clientId').value = config.clientId || '';
           document.getElementById('details').value = config.details || '';
           document.getElementById('state').value = config.state || '';
           document.getElementById('largeImageKey').value = config.largeImageKey || '';
@@ -131,7 +130,6 @@ async function saveAppConfig() {
     
     const config = {
       name: document.getElementById('appName').value,
-      clientId: document.getElementById('clientId').value,
       details: document.getElementById('details').value,
       state: document.getElementById('state').value,
       largeImageKey: document.getElementById('largeImageKey').value,
@@ -141,14 +139,16 @@ async function saveAppConfig() {
       enabled: document.getElementById('enabled').checked
     };
     
+    // Keep existing clientId if it exists (backward compatibility)
+    const result = await chrome.storage.sync.get(['apps']);
+    const existingApps = result.apps || {};
+    if (existingApps[hostname] && existingApps[hostname].clientId) {
+      config.clientId = existingApps[hostname].clientId;
+    }
+    
     // Validation
     if (!config.name) {
       showStatus('Bitte gib einen App-Namen ein', 'error');
-      return;
-    }
-    
-    if (!config.clientId) {
-      showStatus('Bitte gib eine Discord Application ID ein', 'error');
       return;
     }
     

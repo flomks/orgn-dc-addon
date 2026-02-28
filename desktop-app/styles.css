@@ -455,3 +455,79 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #1e2124;
 }
+
+/* Settings Styles */
+.input-with-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-toggle input {
+  flex: 1;
+  padding-right: 45px;
+}
+
+.input-toggle-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #72767d;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.input-toggle-btn:hover {
+  color: #dcddde;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.input-toggle-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-status {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-status.success {
+  background: #43b58122;
+  color: #43b581;
+  border-left: 3px solid #43b581;
+}
+
+.settings-status.error {
+  background: #f0474722;
+  color: #f04747;
+  border-left: 3px solid #f04747;
+}
+
+.settings-status.info {
+  background: #5865f222;
+  color: #5865f2;
+  border-left: 3px solid #5865f2;
+}
+
+.form-group small a {
+  color: #7289da;
+  text-decoration: none;
+}
+
+.form-group small a:hover {
+  text-decoration: underline;
+}
+
+.hidden {
+  display: none !important;
+}

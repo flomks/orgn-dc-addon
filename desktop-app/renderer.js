@@ -13,12 +13,13 @@ const logCount = document.getElementById('logCount');
 const views = {
   dashboard: document.getElementById('dashboardView'),
   logs: document.getElementById('logsView'),
-  test: document.getElementById('testView')
+  test: document.getElementById('testView'),
+  settings: document.getElementById('settingsView')
 };
 
 // Navigation
 document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => {
+  item.addEventListener('click', async () => {
     const viewName = item.dataset.view;
     
     // Update nav active state
@@ -28,6 +29,11 @@ document.querySelectorAll('.nav-item').forEach(item => {
     // Update view
     Object.values(views).forEach(v => v.classList.remove('active'));
     views[viewName].classList.add('active');
+    
+    // Handle settings view activation
+    if (viewName === 'settings') {
+      await loadSettingsView();
+    }
   });
 });
 
@@ -294,6 +300,157 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// Settings View Functions
+async function loadSettingsView() {
+  try {
+    // Load current stored client ID
+    const storedClientId = await window.electron.getClientId();
+    const clientIdInput = document.getElementById('globalClientId');
+    
+    if (storedClientId) {
+      clientIdInput.value = storedClientId;
+      document.getElementById('currentKeyStatus').textContent = 'Key stored securely';
+    } else {
+      clientIdInput.value = '';
+      document.getElementById('currentKeyStatus').textContent = 'No key stored';
+    }
+    
+    // Update storage information
+    updateStorageInfo();
+    
+    // Clear any previous status messages
+    hideSettingsStatus();
+    
+  } catch (error) {
+    console.error('Error loading settings:', error);
+    showSettingsStatus('Error loading settings: ' + error.message, 'error');
+  }
+}
+
+async function updateStorageInfo() {
+  try {
+    const info = await window.electron.getStorageInfo();
+    
+    if (info.encryptionAvailable) {
+      document.getElementById('encryptionStatus').textContent = 'Available (using safeStorage)';
+      document.getElementById('storageLocation').textContent = 'Encrypted local storage';
+    } else {
+      document.getElementById('encryptionStatus').textContent = 'Not available (using plaintext)';
+      document.getElementById('storageLocation').textContent = 'Plaintext local storage';
+    }
+  } catch (error) {
+    document.getElementById('encryptionStatus').textContent = 'Error checking encryption';
+    document.getElementById('storageLocation').textContent = 'Unknown';
+  }
+}
+
+function showSettingsStatus(message, type = 'info') {
+  const statusEl = document.getElementById('settingsStatus');
+  statusEl.textContent = message;
+  statusEl.className = `settings-status ${type}`;
+  statusEl.classList.remove('hidden');
+  
+  // Auto-hide success messages after 3 seconds
+  if (type === 'success') {
+    setTimeout(() => {
+      hideSettingsStatus();
+    }, 3000);
+  }
+}
+
+function hideSettingsStatus() {
+  const statusEl = document.getElementById('settingsStatus');
+  statusEl.classList.add('hidden');
+  statusEl.className = 'settings-status hidden';
+}
+
+// Settings Form Handler
+document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const clientIdInput = document.getElementById('globalClientId');
+  const clientId = clientIdInput.value.trim();
+  
+  if (!clientId) {
+    showSettingsStatus('Please enter a Discord Application ID', 'error');
+    return;
+  }
+  
+  // Basic validation - Discord client IDs are 18-19 digit numbers
+  if (!/^\d{17,19}$/.test(clientId)) {
+    showSettingsStatus('Discord Application ID must be a 17-19 digit number', 'error');
+    return;
+  }
+  
+  try {
+    showSettingsStatus('Saving settings...', 'info');
+    
+    const result = await window.electron.saveClientId(clientId);
+    
+    if (result.success) {
+      showSettingsStatus('Settings saved successfully!', 'success');
+      document.getElementById('currentKeyStatus').textContent = 'Key stored securely';
+    } else {
+      showSettingsStatus('Failed to save settings: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    showSettingsStatus('Error saving settings: ' + error.message, 'error');
+  }
+});
+
+// Client ID visibility toggle
+document.getElementById('toggleClientIdVisibility').addEventListener('click', () => {
+  const input = document.getElementById('globalClientId');
+  const button = document.getElementById('toggleClientIdVisibility');
+  
+  if (input.type === 'password') {
+    input.type = 'text';
+    button.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="m15 18-.722-3.25"></path>
+        <path d="m2 8 14.5 13"></path>
+        <path d="M9.585 4.157A10.958 10.958 0 0 1 12 3.5c7 0 11 8 11 8a13.16 13.16 0 0 1-2.708 2.658"></path>
+        <path d="M6.808 5.808A10.95 10.95 0 0 0 1 12s4 8 11 8c.454 0 .896-.02 1.324-.058"></path>
+        <path d="M12 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path>
+        <path d="m8 16 5.5-5.5"></path>
+      </svg>
+    `;
+    button.title = 'Hide Client ID';
+  } else {
+    input.type = 'password';
+    button.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </svg>
+    `;
+    button.title = 'Show Client ID';
+  }
+});
+
+// Clear stored key button
+document.getElementById('clearStoredKeyBtn').addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to clear the stored Discord Application ID? This will require you to re-enter it or use site-specific IDs.')) {
+    return;
+  }
+  
+  try {
+    const result = await window.electron.saveClientId('');
+    
+    if (result.success) {
+      document.getElementById('globalClientId').value = '';
+      document.getElementById('currentKeyStatus').textContent = 'No key stored';
+      showSettingsStatus('Stored key cleared', 'success');
+    } else {
+      showSettingsStatus('Failed to clear key: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error clearing key:', error);
+    showSettingsStatus('Error clearing key: ' + error.message, 'error');
+  }
+});
 
 // Initialize
 (async () => {

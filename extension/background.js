@@ -116,13 +116,21 @@ async function updateActivity(tab) {
         instance: false,
       };
       
-      currentActivity = {
-        clientId: appConfig.clientId || '1234567890123456789',
-        activity: activity
-      };
+      // Build the activity data - only include clientId if explicitly set in config
+      currentActivity = { activity: activity };
       
-      console.log('[Background] Setting activity:', currentActivity);
-      sendToNative({ type: 'setActivity', activity: currentActivity });
+      const messageData = { type: 'setActivity', activity: activity };
+      
+      // Include clientId only if site has specific override
+      if (appConfig.clientId) {
+        messageData.clientId = appConfig.clientId;
+        currentActivity.clientId = appConfig.clientId;
+        console.log('[Background] Setting activity with site-specific client ID:', messageData);
+      } else {
+        console.log('[Background] Setting activity (using host app default client ID):', messageData);
+      }
+      
+      sendToNative(messageData);
       
       // Update badge to show active
       chrome.action.setBadgeText({ text: '●', tabId: tab.id });
