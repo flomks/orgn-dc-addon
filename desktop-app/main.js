@@ -1,19 +1,26 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { WebSocketServer } = require('ws');
 const DiscordClient = require('../lib/DiscordClient');
+
+const WS_PORT = 7890;
 
 let mainWindow = null;
 let tray = null;
 let discordClient = null;
+let wss = null;
 let logs = [];
 const MAX_LOGS = 1000;
 let extensionConnected = false;
 let lastExtensionPing = null;
 let storedClientId = null;
 let appSettings = {
-  quitOnClose: false // Default: minimize to tray instead of quitting
+  quitOnClose: false
 };
+
+// Track connected WebSocket clients
+const wsClients = new Set();
 
 // Log function
 function addLog(level, ...args) {
@@ -26,7 +33,6 @@ function addLog(level, ...args) {
     logs.shift();
   }
   
-  // Send to renderer if window exists
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('log', logEntry);
   }
@@ -67,7 +73,6 @@ function saveAppSettings(settings) {
   try {
     const settingsPath = getAppSettingsPath();
     
-    // Ensure user data directory exists
     const userDataPath = app.getPath('userData');
     if (!fs.existsSync(userDataPath)) {
       fs.mkdirSync(userDataPath, { recursive: true });
@@ -95,12 +100,10 @@ function loadStoredClientId() {
     
     const encryptedData = fs.readFileSync(keyPath);
     
-    // Check if safeStorage is available
     if (safeStorage.isEncryptionAvailable()) {
       const decryptedKey = safeStorage.decryptString(encryptedData);
       return decryptedKey;
     } else {
-      // Fallback for systems without encryption - read as JSON
       try {
         const jsonData = JSON.parse(encryptedData.toString());
         addLog('WARN', 'Encryption not available, using plaintext storage');
@@ -121,7 +124,6 @@ function saveClientId(clientId) {
   try {
     const keyPath = getStoredKeyPath();
     
-    // Handle clearing the key
     if (!clientId || clientId.trim() === '') {
       try {
         if (fs.existsSync(keyPath)) {
@@ -140,25 +142,21 @@ function saveClientId(clientId) {
       throw new Error('Valid client ID is required');
     }
     
-    // Ensure user data directory exists
     const userDataPath = app.getPath('userData');
     if (!fs.existsSync(userDataPath)) {
       fs.mkdirSync(userDataPath, { recursive: true });
     }
     
     if (safeStorage.isEncryptionAvailable()) {
-      // Use safeStorage encryption
       const encryptedData = safeStorage.encryptString(clientId);
       fs.writeFileSync(keyPath, encryptedData);
       addLog('INFO', 'Client ID saved securely');
     } else {
-      // Fallback for systems without encryption - store as JSON with warning
       const jsonData = { clientId, warning: 'Stored in plaintext - encryption not available' };
       fs.writeFileSync(keyPath, JSON.stringify(jsonData, null, 2));
       addLog('WARN', 'Client ID saved in plaintext (encryption not available)');
     }
     
-    // Update in-memory stored client ID
     storedClientId = clientId;
     
     return { success: true };
@@ -179,26 +177,32 @@ function initializeDiscordClient() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('discord-connected', user);
       }
+      // Notify all connected extensions
+      broadcastToExtensions({ type: 'discordConnected', user });
     },
     onDisconnected: () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('discord-disconnected');
       }
+      broadcastToExtensions({ type: 'discordDisconnected' });
     },
     onError: (error) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('discord-error', error.message);
       }
+      broadcastToExtensions({ type: 'error', error: error.message });
     },
     onActivitySet: (activity) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('activity-set', activity);
       }
+      broadcastToExtensions({ type: 'activitySet', success: true });
     },
     onActivityCleared: () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('activity-cleared');
       }
+      broadcastToExtensions({ type: 'activityCleared', success: true });
     },
     onLog: (level, ...args) => {
       addLog(level.toUpperCase(), ...args);
@@ -212,13 +216,11 @@ function initializeDiscordClient() {
 async function setActivity(activityData) {
   const client = initializeDiscordClient();
   
-  // Use stored client ID as fallback if not provided
   if (!activityData.clientId && storedClientId) {
     activityData.clientId = storedClientId;
     addLog('INFO', 'Using stored client ID as fallback');
   }
   
-  // Validate client ID
   if (!activityData.clientId) {
     const error = 'No Discord Application ID configured. Please set one in Settings.';
     addLog('ERROR', error);
@@ -234,7 +236,164 @@ async function clearActivity() {
   return await client.clearActivity();
 }
 
-// Create main window
+// ============================================================
+// WebSocket Server - Communication with Browser Extension
+// ============================================================
+
+function startWebSocketServer() {
+  wss = new WebSocketServer({ port: WS_PORT, host: '127.0.0.1' });
+  
+  addLog('INFO', `WebSocket server started on ws://127.0.0.1:${WS_PORT}`);
+  
+  wss.on('connection', (ws) => {
+    wsClients.add(ws);
+    extensionConnected = true;
+    lastExtensionPing = Date.now();
+    
+    addLog('INFO', 'Browser extension connected via WebSocket');
+    
+    // Notify renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('extension-message', {
+        type: 'connected',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Send current status to newly connected extension
+    const client = discordClient || initializeDiscordClient();
+    const status = client.getStatus();
+    ws.send(JSON.stringify({
+      type: 'welcome',
+      discordConnected: status.connected,
+      user: status.user,
+      storedClientId: storedClientId ? true : false
+    }));
+    
+    ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        handleExtensionMessage(ws, message);
+      } catch (error) {
+        addLog('ERROR', 'Failed to parse WebSocket message:', error.message);
+        ws.send(JSON.stringify({ type: 'error', error: 'Invalid JSON' }));
+      }
+    });
+    
+    ws.on('close', () => {
+      wsClients.delete(ws);
+      addLog('INFO', 'Browser extension disconnected');
+      
+      if (wsClients.size === 0) {
+        extensionConnected = false;
+      }
+      
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('extension-message', {
+          type: 'disconnected',
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+    
+    ws.on('error', (error) => {
+      addLog('ERROR', 'WebSocket client error:', error.message);
+      wsClients.delete(ws);
+    });
+  });
+  
+  wss.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      addLog('ERROR', `Port ${WS_PORT} is already in use. Is another instance running?`);
+    } else {
+      addLog('ERROR', 'WebSocket server error:', error.message);
+    }
+  });
+}
+
+// Handle messages from extension
+function handleExtensionMessage(ws, message) {
+  addLog('INFO', 'Received from extension:', message.type);
+  
+  extensionConnected = true;
+  lastExtensionPing = Date.now();
+  
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('extension-message', {
+      type: message.type,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  switch (message.type) {
+    case 'ping':
+      addLog('INFO', 'Extension ping received');
+      ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+      break;
+      
+    case 'setActivity': {
+      const activityData = {
+        ...message.activity,
+        clientId: message.clientId || message.activity?.clientId || storedClientId
+      };
+      
+      setActivity(activityData).then(result => {
+        ws.send(JSON.stringify(
+          result.success
+            ? { type: 'activitySet', success: true }
+            : { type: 'error', error: result.error }
+        ));
+      });
+      break;
+    }
+    
+    case 'clearActivity':
+      clearActivity().then(result => {
+        ws.send(JSON.stringify(
+          result.success
+            ? { type: 'activityCleared', success: true }
+            : { type: 'error', error: result.error }
+        ));
+      });
+      break;
+      
+    case 'getStatus': {
+      const client = discordClient || initializeDiscordClient();
+      const status = client.getStatus();
+      ws.send(JSON.stringify({
+        type: 'status',
+        discordConnected: status.connected,
+        user: status.user,
+        activity: status.activity,
+        storedClientId: storedClientId ? true : false
+      }));
+      break;
+    }
+    
+    default:
+      addLog('WARN', 'Unknown message type from extension:', message.type);
+      ws.send(JSON.stringify({ type: 'error', error: 'Unknown message type' }));
+  }
+}
+
+// Broadcast message to all connected extension clients
+function broadcastToExtensions(message) {
+  const data = JSON.stringify(message);
+  for (const client of wsClients) {
+    try {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(data);
+      }
+    } catch (error) {
+      addLog('ERROR', 'Error broadcasting to extension:', error.message);
+    }
+  }
+}
+
+// ============================================================
+// Electron Window & Tray
+// ============================================================
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
@@ -249,49 +408,41 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     backgroundColor: '#2c2f33',
-    skipTaskbar: true,  // Always hide from taskbar - only show in system tray
-    show: false  // Don't show immediately
+    skipTaskbar: true,
+    show: false
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.on('close', (event) => {
     if (!app.isQuitting && !appSettings.quitOnClose) {
-      // Minimize to tray instead of quitting
       event.preventDefault();
       mainWindow.hide();
     }
-    // If quitOnClose is true or app is quitting, allow window to close
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
-  // Send initial data
   mainWindow.webContents.on('did-finish-load', () => {
-    // Send all logs
     logs.forEach(log => {
       mainWindow.webContents.send('log', log);
     });
     
-    // Initialize Discord client if needed and send status
     const client = initializeDiscordClient();
     const status = client.getStatus();
     
-    // Send connection status
     if (status.connected) {
       mainWindow.webContents.send('discord-connected', status.user);
     }
     
-    // Send current activity
     if (status.activity) {
       mainWindow.webContents.send('activity-set', status.activity.activity);
     }
   });
 }
 
-// Update tray menu (standalone function to be callable from anywhere)
 function updateTrayMenu() {
   if (!tray) return;
   
@@ -330,7 +481,6 @@ function updateTrayMenu() {
       checked: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
       enabled: app.isPackaged,
       click: (menuItem) => {
-        // Extra check - should not be called if disabled, but just in case
         if (!app.isPackaged) {
           addLog('WARN', 'Autostart funktioniert nur in der installierten Version');
           return;
@@ -355,7 +505,7 @@ function updateTrayMenu() {
               fs.mkdirSync(autostartDir, { recursive: true });
             }
             
-        const desktopContent = `[Desktop Entry]
+            const desktopContent = `[Desktop Entry]
 Type=Application
 Name=ORGN Discord Bridge
 Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
@@ -382,6 +532,11 @@ X-GNOME-Autostart-enabled=true
     },
     { type: 'separator' },
     {
+      label: `Extension: ${extensionConnected ? 'Connected' : 'Not connected'}`,
+      enabled: false
+    },
+    { type: 'separator' },
+    {
       label: 'Beenden',
       click: () => {
         app.isQuitting = true;
@@ -393,7 +548,6 @@ X-GNOME-Autostart-enabled=true
   tray.setContextMenu(contextMenu);
 }
 
-// Create tray icon
 function createTray() {
   const iconPath = path.join(__dirname, '../extension/icons/icon16.png');
   const trayIcon = nativeImage.createFromPath(iconPath);
@@ -419,7 +573,10 @@ function createTray() {
   });
 }
 
+// ============================================================
 // IPC Handlers
+// ============================================================
+
 ipcMain.handle('get-logs', () => {
   return logs;
 });
@@ -456,9 +613,10 @@ ipcMain.handle('get-extension-status', () => {
   
   return {
     connected: extensionConnected,
+    clientCount: wsClients.size,
     lastPing: lastExtensionPing,
     timeSinceLastPing: timeSinceLastPing,
-    isNativeMessagingMode: process.stdin.isTTY === false
+    wsPort: WS_PORT
   };
 });
 
@@ -494,12 +652,11 @@ ipcMain.handle('save-app-settings', (event, settings) => {
 // Autostart handlers
 ipcMain.handle('get-autostart', () => {
   try {
-    // In development mode, check if running from npm/electron directly
     if (!app.isPackaged) {
       return { 
         enabled: false, 
         isDevelopment: true,
-        message: 'Autostart is only available in the installed version. In development mode (npm run app), autostart does not work properly.'
+        message: 'Autostart is only available in the installed version.'
       };
     }
     return { enabled: app.getLoginItemSettings().openAtLogin, isDevelopment: false };
@@ -511,42 +668,29 @@ ipcMain.handle('get-autostart', () => {
 
 ipcMain.handle('set-autostart', (event, { enabled }) => {
   try {
-    // Check if running in development mode
     if (!app.isPackaged) {
-      const message = 'Autostart funktioniert nur in der installierten Version. Nutze "npm run build:win/mac/linux" um eine installierbare Version zu erstellen.';
+      const message = 'Autostart only works in installed version. Use "npm run build:win/mac/linux" to create an installable build.';
       addLog('WARN', message);
-      return { 
-        success: false, 
-        isDevelopment: true,
-        error: message
-      };
+      return { success: false, isDevelopment: true, error: message };
     }
     
-    const options = {
-      openAtLogin: enabled,
-      openAsHidden: true
-    };
+    const options = { openAtLogin: enabled, openAsHidden: true };
     
-    // On macOS packaged builds, we need to explicitly set the path
     if (process.platform === 'darwin') {
       options.path = app.getPath('exe');
     }
     
-    // On Linux, fall back to creating .desktop file since app.setLoginItemSettings is limited
     if (process.platform === 'linux') {
       const os = require('os');
       const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
-      const userDataPath = app.getPath('userData');
       
       if (enabled) {
-        // Create autostart directory if it doesn't exist
         const autostartDir = path.dirname(desktopFilePath);
         if (!fs.existsSync(autostartDir)) {
           fs.mkdirSync(autostartDir, { recursive: true });
         }
         
-        // Create desktop file
-            const desktopContent = `[Desktop Entry]
+        const desktopContent = `[Desktop Entry]
 Type=Application
 Name=ORGN Discord Bridge
 Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
@@ -554,23 +698,20 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 `;
-            
-            fs.writeFileSync(desktopFilePath, desktopContent);
+        
+        fs.writeFileSync(desktopFilePath, desktopContent);
         addLog('INFO', 'Autostart enabled (Linux desktop file created)');
       } else {
-        // Remove desktop file
         if (fs.existsSync(desktopFilePath)) {
           fs.unlinkSync(desktopFilePath);
           addLog('INFO', 'Autostart disabled (Linux desktop file removed)');
         }
       }
     } else {
-      // Use Electron's built-in method for Windows and macOS
       app.setLoginItemSettings(options);
       addLog('INFO', `Autostart ${enabled ? 'enabled' : 'disabled'}`);
     }
     
-    // Update tray menu to reflect the change
     if (typeof updateTrayMenu === 'function') {
       updateTrayMenu();
     }
@@ -582,138 +723,29 @@ X-GNOME-Autostart-enabled=true
   }
 });
 
-// Native Messaging Handler (for browser extension)
-if (process.stdin.isTTY === false) {
-  // We're being called by browser extension
-  addLog('INFO', 'Running in native messaging mode');
-  
-  let messageBuffer = Buffer.alloc(0);
-  
-  process.stdin.on('readable', () => {
-    let chunk;
-    while ((chunk = process.stdin.read()) !== null) {
-      messageBuffer = Buffer.concat([messageBuffer, chunk]);
-      
-      // Try to parse messages
-      while (messageBuffer.length >= 4) {
-        const messageLength = messageBuffer.readUInt32LE(0);
-        
-        if (messageBuffer.length >= 4 + messageLength) {
-          const messageData = messageBuffer.slice(4, 4 + messageLength);
-          messageBuffer = messageBuffer.slice(4 + messageLength);
-          
-          try {
-            const message = JSON.parse(messageData.toString('utf-8'));
-            handleNativeMessage(message);
-          } catch (error) {
-            addLog('ERROR', 'Failed to parse message:', error.message);
-          }
-        } else {
-          break;
-        }
-      }
-    }
-  });
-  
-  process.stdin.on('end', () => {
-    addLog('INFO', 'Browser extension disconnected');
-    app.quit();
-  });
-}
+// ============================================================
+// App Lifecycle
+// ============================================================
 
-function handleNativeMessage(message) {
-  addLog('INFO', 'Received from extension:', message.type);
-  
-  // Mark extension as connected
-  extensionConnected = true;
-  lastExtensionPing = Date.now();
-  
-  // Notify renderer
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('extension-message', {
-      type: message.type,
-      timestamp: new Date().toISOString()
-    });
-  }
-  
-  switch (message.type) {
-    case 'ping':
-      addLog('INFO', 'Extension ping received, sending pong...');
-      sendNativeMessage({ type: 'pong', timestamp: Date.now() });
-      break;
-    case 'setActivity':
-      // Use provided clientId or fall back to stored one
-      const activityData = {
-        ...message.activity,
-        clientId: message.clientId || message.activity.clientId || storedClientId
-      };
-      
-      setActivity(activityData).then(result => {
-        if (result.success) {
-          sendNativeMessage({ type: 'activitySet', success: true });
-        } else {
-          sendNativeMessage({ type: 'error', error: result.error });
-        }
-      });
-      break;
-    case 'clearActivity':
-      clearActivity().then(result => {
-        if (result.success) {
-          sendNativeMessage({ type: 'activityCleared', success: true });
-        } else {
-          sendNativeMessage({ type: 'error', error: result.error });
-        }
-      });
-      break;
-    default:
-      addLog('WARN', 'Unknown message type:', message.type);
-      sendNativeMessage({ type: 'error', error: 'Unknown message type' });
-  }
-}
-
-function sendNativeMessage(message) {
-  if (process.stdin.isTTY !== false) {
-    return; // Not in native messaging mode
-  }
-  
-  try {
-    const buffer = Buffer.from(JSON.stringify(message), 'utf-8');
-    const header = Buffer.alloc(4);
-    header.writeUInt32LE(buffer.length, 0);
-    
-    process.stdout.write(header);
-    process.stdout.write(buffer);
-    
-    addLog('INFO', 'Sent to extension:', message.type);
-  } catch (error) {
-    addLog('ERROR', 'Error sending native message:', error.message);
-  }
-}
-
-// App lifecycle
 app.whenReady().then(() => {
   addLog('INFO', 'ORGN Discord Bridge started');
   addLog('INFO', 'Version:', app.getVersion());
   addLog('INFO', 'Electron:', process.versions.electron);
   addLog('INFO', 'Node:', process.versions.node);
   
-  // Load stored client ID on startup
   storedClientId = loadStoredClientId();
   if (storedClientId) {
     addLog('INFO', 'Loaded stored Discord client ID');
   }
   
-  // Load app settings on startup
   appSettings = loadAppSettings();
   addLog('INFO', 'App settings loaded. Quit on close:', appSettings.quitOnClose);
   
+  // Start WebSocket server for extension communication
+  startWebSocketServer();
+  
   createTray();
   createWindow();
-  
-  // Send initial connected message for native messaging
-  if (process.stdin.isTTY === false) {
-    sendNativeMessage({ type: 'connected' });
-  }
 });
 
 app.on('window-all-closed', () => {
@@ -730,6 +762,19 @@ app.on('activate', () => {
 
 app.on('before-quit', async () => {
   app.isQuitting = true;
+  
+  // Close WebSocket server
+  if (wss) {
+    for (const client of wsClients) {
+      try {
+        client.close();
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    }
+    wss.close();
+    addLog('INFO', 'WebSocket server stopped');
+  }
   
   if (discordClient) {
     try {

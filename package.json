@@ -1,50 +1,40 @@
 {
   "name": "orgn-discord-bridge",
-  "version": "1.0.0",
-  "description": "ORGN Discord Bridge - Browser extension with native host for Discord Rich Presence in web applications",
+  "version": "1.1.0",
+  "description": "ORGN Discord Bridge - Desktop app + browser extension for Discord Rich Presence in web applications",
   "main": "desktop-app/main.js",
   "scripts": {
-    "install-host": "node scripts/install-native-host.js",
-    "uninstall-host": "node scripts/uninstall-native-host.js",
-    "update-id": "node scripts/update-extension-id.js",
-    "check": "node scripts/check-installation.js",
-    "diagnose": "node scripts/diagnose.js",
-    "debug": "node scripts/debug-native-host.js",
-    "test": "node scripts/test-native-host.js",
-    "start-host": "node native-host/index.js",
-    "dev": "node native-host/index.js",
     "app": "electron desktop-app/main.js",
     "app:dev": "electron desktop-app/main.js --dev",
-    "use-app": "node scripts/switch-to-desktop-app.js",
-    "use-cli": "node scripts/switch-to-cli-host.js",
-    "fix-vscode": "node scripts/fix-windows-manifest.js",
+    "diagnose": "node scripts/diagnose.js",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
-    "type-check": "tsc --noEmit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "type-check": "tsc --noEmit"
   },
   "keywords": [
     "discord",
     "rich-presence",
     "browser-extension",
-    "native-messaging"
+    "electron"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "discord-rpc": "^4.0.1",
-    "electron": "^40.6.1"
+    "electron": "^40.6.1",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "electron-builder": "^26.8.1",
     "@types/chrome": "^0.0.280",
-    "@types/node": "^22.10.1",
-    "typescript": "^5.7.2",
-    "jest": "^29.7.0",
     "@types/jest": "^29.5.14",
-    "ts-jest": "^29.2.5"
+    "@types/node": "^22.10.1",
+    "electron-builder": "^26.8.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
   },
   "build": {
     "appId": "com.orgn.discord.bridge",
@@ -60,15 +50,24 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "extension/icons/icon128.png"
     },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "extension/icons/icon128.png"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Utility",
       "icon": "extension/icons/icon128.png"
     },
