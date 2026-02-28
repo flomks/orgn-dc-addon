@@ -355,11 +355,16 @@ async function loadSettingsView() {
     const appSettings = await window.electron.getAppSettings();
     document.getElementById('quitOnClose').checked = appSettings.quitOnClose || false;
     
+    // Load autostart setting
+    const autostartEnabled = await window.electron.getAutostart();
+    document.getElementById('autostartToggle').checked = autostartEnabled;
+    
     // Update storage information
     updateStorageInfo();
     
     // Clear any previous status messages
     hideSettingsStatus();
+    hideAutostartStatus();
     
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -400,6 +405,26 @@ function showSettingsStatus(message, type = 'info') {
 
 function hideSettingsStatus() {
   const statusEl = document.getElementById('settingsStatus');
+  statusEl.classList.add('hidden');
+  statusEl.className = 'settings-status hidden';
+}
+
+function showAutostartStatus(message, type = 'info') {
+  const statusEl = document.getElementById('autostartStatus');
+  statusEl.textContent = message;
+  statusEl.className = `settings-status ${type}`;
+  statusEl.classList.remove('hidden');
+  
+  // Auto-hide success messages after 3 seconds
+  if (type === 'success') {
+    setTimeout(() => {
+      hideAutostartStatus();
+    }, 3000);
+  }
+}
+
+function hideAutostartStatus() {
+  const statusEl = document.getElementById('autostartStatus');
   statusEl.classList.add('hidden');
   statusEl.className = 'settings-status hidden';
 }
@@ -508,6 +533,30 @@ document.getElementById('appSettingsForm').addEventListener('submit', async (e) 
   } catch (error) {
     console.error('Error saving app settings:', error);
     showSettingsStatus('Fehler beim Speichern: ' + error.message, 'error');
+  }
+});
+
+// Autostart Toggle Handler
+document.getElementById('autostartToggle').addEventListener('change', async (e) => {
+  const enabled = e.target.checked;
+  
+  try {
+    showAutostartStatus(`${enabled ? 'Enabling' : 'Disabling'} autostart...`, 'info');
+    
+    const result = await window.electron.setAutostart(enabled);
+    
+    if (result.success) {
+      showAutostartStatus(`Autostart ${enabled ? 'enabled' : 'disabled'}!`, 'success');
+    } else {
+      showAutostartStatus('Failed to update autostart: ' + result.error, 'error');
+      // Revert the toggle on failure
+      e.target.checked = !enabled;
+    }
+  } catch (error) {
+    console.error('Error updating autostart:', error);
+    showAutostartStatus('Error updating autostart: ' + error.message, 'error');
+    // Revert the toggle on failure
+    e.target.checked = !enabled;
   }
 });
 

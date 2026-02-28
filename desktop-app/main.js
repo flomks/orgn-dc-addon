@@ -291,54 +291,107 @@ function createWindow() {
   });
 }
 
+// Update tray menu (standalone function to be callable from anywhere)
+function updateTrayMenu() {
+  if (!tray) return;
+  
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Discord Rich Presence',
+      enabled: false
+    },
+    { type: 'separator' },
+    {
+      label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isVisible()) {
+            mainWindow.hide();
+          } else {
+            mainWindow.show();
+          }
+        } else {
+          createWindow();
+          mainWindow.show();
+        }
+        updateTrayMenu();
+      }
+    },
+    {
+      label: 'Activity löschen',
+      click: () => {
+        clearActivity();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Start with system',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (menuItem) => {
+        const options = {
+          openAtLogin: menuItem.checked,
+          openAsHidden: true
+        };
+        
+        if (process.platform === 'darwin' && app.isPackaged) {
+          options.path = app.getPath('exe');
+        }
+        
+        if (process.platform === 'linux') {
+          const os = require('os');
+          const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
+          
+          if (menuItem.checked) {
+            const autostartDir = path.dirname(desktopFilePath);
+            if (!fs.existsSync(autostartDir)) {
+              fs.mkdirSync(autostartDir, { recursive: true });
+            }
+            
+            const desktopContent = `[Desktop Entry]
+Type=Application
+Name=Discord Rich Presence
+Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+`;
+            
+            fs.writeFileSync(desktopFilePath, desktopContent);
+            addLog('INFO', 'Autostart enabled via tray menu');
+          } else {
+            if (fs.existsSync(desktopFilePath)) {
+              fs.unlinkSync(desktopFilePath);
+              addLog('INFO', 'Autostart disabled via tray menu');
+            }
+          }
+        } else {
+          app.setLoginItemSettings(options);
+          addLog('INFO', `Autostart ${menuItem.checked ? 'enabled' : 'disabled'} via tray menu`);
+        }
+        
+        updateTrayMenu();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Beenden',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+  
+  tray.setContextMenu(contextMenu);
+}
+
 // Create tray icon
 function createTray() {
   const iconPath = path.join(__dirname, '../extension/icons/icon16.png');
   const trayIcon = nativeImage.createFromPath(iconPath);
   
   tray = new Tray(trayIcon);
-  
-  const updateTrayMenu = () => {
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: 'Discord Rich Presence',
-        enabled: false
-      },
-      { type: 'separator' },
-      {
-        label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
-        click: () => {
-          if (mainWindow) {
-            if (mainWindow.isVisible()) {
-              mainWindow.hide();
-            } else {
-              mainWindow.show();
-            }
-          } else {
-            createWindow();
-            mainWindow.show();
-          }
-          updateTrayMenu();
-        }
-      },
-      {
-        label: 'Activity löschen',
-        click: () => {
-          clearActivity();
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Beenden',
-        click: () => {
-          app.isQuitting = true;
-          app.quit();
-        }
-      }
-    ]);
-    
-    tray.setContextMenu(contextMenu);
-  };
   
   updateTrayMenu();
   
@@ -429,6 +482,78 @@ ipcMain.handle('get-app-settings', () => {
 
 ipcMain.handle('save-app-settings', (event, settings) => {
   return saveAppSettings(settings);
+});
+
+// Autostart handlers
+ipcMain.handle('get-autostart', () => {
+  try {
+    return app.getLoginItemSettings().openAtLogin;
+  } catch (error) {
+    addLog('ERROR', 'Failed to get autostart setting:', error.message);
+    return false;
+  }
+});
+
+ipcMain.handle('set-autostart', (event, { enabled }) => {
+  try {
+    const options = {
+      openAtLogin: enabled,
+      openAsHidden: true
+    };
+    
+    // On macOS packaged builds, we need to explicitly set the path
+    if (process.platform === 'darwin' && app.isPackaged) {
+      options.path = app.getPath('exe');
+    }
+    
+    // On Linux, fall back to creating .desktop file since app.setLoginItemSettings is limited
+    if (process.platform === 'linux') {
+      const os = require('os');
+      const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
+      const userDataPath = app.getPath('userData');
+      
+      if (enabled) {
+        // Create autostart directory if it doesn't exist
+        const autostartDir = path.dirname(desktopFilePath);
+        if (!fs.existsSync(autostartDir)) {
+          fs.mkdirSync(autostartDir, { recursive: true });
+        }
+        
+        // Create desktop file
+        const desktopContent = `[Desktop Entry]
+Type=Application
+Name=Discord Rich Presence
+Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+`;
+        
+        fs.writeFileSync(desktopFilePath, desktopContent);
+        addLog('INFO', 'Autostart enabled (Linux desktop file created)');
+      } else {
+        // Remove desktop file
+        if (fs.existsSync(desktopFilePath)) {
+          fs.unlinkSync(desktopFilePath);
+          addLog('INFO', 'Autostart disabled (Linux desktop file removed)');
+        }
+      }
+    } else {
+      // Use Electron's built-in method for Windows and macOS
+      app.setLoginItemSettings(options);
+      addLog('INFO', `Autostart ${enabled ? 'enabled' : 'disabled'}`);
+    }
+    
+    // Update tray menu to reflect the change
+    if (typeof updateTrayMenu === 'function') {
+      updateTrayMenu();
+    }
+    
+    return { success: true };
+  } catch (error) {
+    addLog('ERROR', 'Failed to set autostart:', error.message);
+    return { success: false, error: error.message };
+  }
 });
 
 // Native Messaging Handler (for browser extension)
