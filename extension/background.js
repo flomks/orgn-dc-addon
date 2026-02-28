@@ -124,8 +124,8 @@ function parseOrgnPage(title, url) {
   // Trial pattern: "name - Trial"
   const trialMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*Trial$/i);
   if (trialMatch) {
-    result.details = trialMatch[1].trim();
-    result.state = 'Working on Trial';
+    result.details = 'Working on Trial';
+    result.state = trialMatch[1].trim();
     return result;
   }
 
