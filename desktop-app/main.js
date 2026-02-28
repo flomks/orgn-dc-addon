@@ -549,7 +549,10 @@ X-GNOME-Autostart-enabled=true
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../extension/icons/icon16.png');
+  // Use dedicated tray icons (transparent background, works on light and dark taskbars)
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, '../extension/icons/tray16.png')
+    : path.join(__dirname, '../extension/icons/tray32.png');
   const trayIcon = nativeImage.createFromPath(iconPath);
   
   tray = new Tray(trayIcon);
