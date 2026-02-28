@@ -1,246 +1,169 @@
 #!/usr/bin/env node
 
 /**
- * Comprehensive diagnostic tool for Discord Rich Presence
- * Tests all components and shows detailed status
+ * Diagnostic tool for ORGN Discord Bridge
+ * Tests desktop app, WebSocket server, and extension files
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const http = require('http');
 
-const NATIVE_HOST_NAME = 'com.discord.richpresence.webapp';
+const WS_PORT = 7890;
 const platform = os.platform();
-const homeDir = os.homedir();
 
-console.log('╔════════════════════════════════════════════════════════════╗');
-console.log('║  Discord Rich Presence - Diagnose Tool                    ║');
-console.log('╚════════════════════════════════════════════════════════════╝\n');
+console.log('====================================================');
+console.log('  ORGN Discord Bridge - Diagnostic Tool');
+console.log('====================================================\n');
 
-let allChecks = [];
 let criticalFailed = false;
 
 function check(name, status, message, critical = false) {
-  const icon = status ? '✓' : '✗';
-  const color = status ? '' : (critical ? '❌ CRITICAL' : '⚠️  WARNING');
+  const icon = status ? '[OK]' : '[FAIL]';
   
   console.log(`${icon} ${name}`);
   if (message) {
-    console.log(`  ${message}`);
+    console.log(`     ${message}`);
   }
-  if (!status && color) {
-    console.log(`  ${color}`);
-  }
-  console.log();
   
-  allChecks.push({ name, status, critical });
   if (!status && critical) {
     criticalFailed = true;
   }
+  console.log();
 }
 
-// 1. Node.js Check
-console.log('═══ System Checks ═══\n');
-
-const nodeVersion = process.version;
-const nodeMajor = parseInt(nodeVersion.slice(1).split('.')[0]);
-check(
-  'Node.js Version',
-  nodeMajor >= 14,
-  `Version: ${nodeVersion} ${nodeMajor >= 14 ? '(OK)' : '(Upgrade needed: node.js.org)'}`,
-  true
-);
-
+// 1. System Info
+console.log('--- System ---\n');
 check('Platform', true, `${platform} (${os.arch()})`);
+check('Node.js', true, `${process.version}`);
 
-// 2. File Checks
-console.log('═══ File Structure ═══\n');
+// 2. File Structure
+console.log('--- Files ---\n');
 
-const nativeHostFile = platform === 'win32' ? 'index.bat' : 'index.js';
-const nativeHostPath = path.resolve(__dirname, '../native-host', nativeHostFile);
-const nativeHostExists = fs.existsSync(nativeHostPath);
-check(
-  'Native Host Script',
-  nativeHostExists,
-  nativeHostExists ? nativeHostPath : 'File not found!',
-  true
-);
+const desktopAppMain = path.resolve(__dirname, '../desktop-app/main.js');
+const desktopAppExists = fs.existsSync(desktopAppMain);
+check('Desktop App (main.js)', desktopAppExists,
+  desktopAppExists ? desktopAppMain : 'File not found!', true);
 
-if (nativeHostExists && platform !== 'win32') {
-  const stats = fs.statSync(nativeHostPath);
-  const isExecutable = !!(stats.mode & 0o111);
-  check(
-    'Script Executable Permission',
-    isExecutable,
-    isExecutable ? 'OK' : `Run: chmod +x ${nativeHostPath}`
-  );
-}
-
-const packageJsonPath = path.resolve(__dirname, '../package.json');
-const packageJsonExists = fs.existsSync(packageJsonPath);
-check('package.json', packageJsonExists, packageJsonPath, true);
-
-// 3. Dependencies Check
-console.log('═══ Dependencies ═══\n');
-
-const nodeModulesPath = path.resolve(__dirname, '../node_modules');
-const discordRpcPath = path.join(nodeModulesPath, 'discord-rpc');
-const discordRpcExists = fs.existsSync(discordRpcPath);
-check(
-  'discord-rpc Package',
-  discordRpcExists,
-  discordRpcExists ? 'Installed' : 'Run: npm install',
-  true
-);
-
-if (discordRpcExists) {
-  try {
-    const discordRpcPkg = require(path.join(discordRpcPath, 'package.json'));
-    check('discord-rpc Version', true, `v${discordRpcPkg.version}`);
-  } catch (e) {
-    check('discord-rpc Version', false, 'Could not read version');
-  }
-}
-
-// 4. Native Host Registration
-console.log('═══ Native Host Registration ═══\n');
-
-let chromeManifestPath;
-if (platform === 'win32') {
-  chromeManifestPath = path.join(homeDir, 'AppData', 'Local', 'discord-rpc-native-host', `${NATIVE_HOST_NAME}.json`);
-} else if (platform === 'darwin') {
-  chromeManifestPath = path.join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts', `${NATIVE_HOST_NAME}.json`);
-} else {
-  chromeManifestPath = path.join(homeDir, '.config', 'google-chrome', 'NativeMessagingHosts', `${NATIVE_HOST_NAME}.json`);
-}
-
-const chromeManifestExists = fs.existsSync(chromeManifestPath);
-check(
-  'Chrome/Edge Manifest',
-  chromeManifestExists,
-  chromeManifestExists ? chromeManifestPath : 'Run: npm run install-host',
-  true
-);
-
-if (chromeManifestExists) {
-  try {
-    const manifest = JSON.parse(fs.readFileSync(chromeManifestPath, 'utf-8'));
-    
-    check('Manifest Valid JSON', true, 'Parsed successfully');
-    
-    const pathCorrect = manifest.path === nativeHostPath;
-    check(
-      'Manifest Path',
-      pathCorrect,
-      manifest.path + (pathCorrect ? '' : '\nExpected: ' + nativeHostPath)
-    );
-    
-    const hasExtensions = manifest.allowed_origins && manifest.allowed_origins.length > 0;
-    check(
-      'Extension IDs Registered',
-      hasExtensions,
-      hasExtensions 
-        ? `${manifest.allowed_origins.length} extension(s):\n  ${manifest.allowed_origins.join('\n  ')}`
-        : 'Run: npm run update-id after loading extension',
-      true
-    );
-  } catch (error) {
-    check('Manifest Parsing', false, `Error: ${error.message}`, true);
-  }
-}
-
-// 5. Extension Files
-console.log('═══ Browser Extension ═══\n');
+const libClient = path.resolve(__dirname, '../lib/DiscordClient.js');
+const libExists = fs.existsSync(libClient);
+check('DiscordClient Library', libExists,
+  libExists ? libClient : 'File not found!', true);
 
 const extensionDir = path.resolve(__dirname, '../extension');
-const extensionExists = fs.existsSync(extensionDir);
-check('Extension Directory', extensionExists, extensionDir, true);
+const extFiles = ['manifest.json', 'background.js', 'popup.js', 'popup.html'];
+extFiles.forEach(file => {
+  const filePath = path.join(extensionDir, file);
+  const exists = fs.existsSync(filePath);
+  check(`Extension: ${file}`, exists,
+    exists ? 'OK' : 'File not found!', true);
+});
 
-if (extensionExists) {
-  const manifestPath = path.join(extensionDir, 'manifest.json');
-  const manifestExists = fs.existsSync(manifestPath);
-  check('Extension manifest.json', manifestExists, manifestPath, true);
-  
-  const backgroundPath = path.join(extensionDir, 'background.js');
-  check('background.js', fs.existsSync(backgroundPath), backgroundPath, true);
-  
-  const popupPath = path.join(extensionDir, 'popup.html');
-  check('popup.html', fs.existsSync(popupPath), popupPath);
-}
+// 3. Dependencies
+console.log('--- Dependencies ---\n');
 
-// 6. Discord Check
-console.log('═══ Discord Environment ═══\n');
+const nodeModules = path.resolve(__dirname, '../node_modules');
+const deps = ['discord-rpc', 'ws', 'electron'];
+deps.forEach(dep => {
+  const depPath = path.join(nodeModules, dep);
+  const exists = fs.existsSync(depPath);
+  check(`Package: ${dep}`, exists,
+    exists ? 'Installed' : 'Not installed! Run: npm install', true);
+});
 
-// Try to detect if Discord is running
-let discordRunning = false;
-if (platform === 'win32') {
-  try {
-    const result = require('child_process').execSync('tasklist').toString();
-    discordRunning = result.toLowerCase().includes('discord.exe');
-  } catch (e) {
-    // Can't determine
-  }
-} else {
-  try {
-    const result = require('child_process').execSync('ps aux').toString();
-    discordRunning = result.toLowerCase().includes('discord');
-  } catch (e) {
-    // Can't determine
-  }
-}
+// 4. Check if WebSocket port is available / desktop app is running
+console.log('--- Desktop App Status ---\n');
 
-check(
-  'Discord Process Detected',
-  discordRunning,
-  discordRunning 
-    ? 'Discord appears to be running' 
-    : 'Could not detect Discord (may be false negative)\n  Make sure Discord Desktop App is running!'
-);
-
-// Summary
-console.log('═══════════════════════════════════════════════════════════');
-console.log('SUMMARY\n');
-
-const passed = allChecks.filter(c => c.status).length;
-const failed = allChecks.filter(c => !c.status).length;
-const criticalFailures = allChecks.filter(c => !c.status && c.critical).length;
-
-console.log(`Total Checks: ${allChecks.length}`);
-console.log(`✓ Passed: ${passed}`);
-console.log(`✗ Failed: ${failed}`);
-if (criticalFailures > 0) {
-  console.log(`❌ Critical Failures: ${criticalFailures}\n`);
-}
-
-console.log('═══════════════════════════════════════════════════════════\n');
-
-if (criticalFailed) {
-  console.log('❌ CRITICAL ISSUES FOUND!\n');
-  console.log('Please fix critical issues before continuing:\n');
-  
-  allChecks.filter(c => !c.status && c.critical).forEach(c => {
-    console.log(`  ✗ ${c.name}`);
+function checkWebSocket() {
+  return new Promise((resolve) => {
+    try {
+      const WebSocket = require('ws');
+      const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`);
+      
+      const timeout = setTimeout(() => {
+        ws.terminate();
+        resolve(false);
+      }, 3000);
+      
+      ws.on('open', () => {
+        clearTimeout(timeout);
+        ws.send(JSON.stringify({ type: 'ping' }));
+        
+        ws.on('message', (data) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            console.log(`     Response: ${JSON.stringify(msg)}`);
+          } catch (e) {
+            // ignore
+          }
+          ws.close();
+          resolve(true);
+        });
+        
+        setTimeout(() => {
+          ws.close();
+          resolve(true);
+        }, 1000);
+      });
+      
+      ws.on('error', () => {
+        clearTimeout(timeout);
+        resolve(false);
+      });
+    } catch (error) {
+      resolve(false);
+    }
   });
-  
-  console.log('\nCommon fixes:');
-  console.log('  npm install          - Install dependencies');
-  console.log('  npm run install-host - Register native host');
-  console.log('  npm run update-id    - Register extension ID\n');
-  
-  process.exit(1);
-} else if (failed > 0) {
-  console.log('⚠️  Some non-critical issues found.\n');
-  console.log('The system may still work, but check warnings above.\n');
-} else {
-  console.log('✓ ALL CHECKS PASSED!\n');
-  console.log('Next steps:');
-  console.log('  1. Load extension in browser');
-  console.log('  2. Register extension ID: npm run update-id');
-  console.log('  3. Create Discord Application');
-  console.log('  4. Configure a web app');
-  console.log('  5. Test it!\n');
-  console.log('For testing: npm run test\n');
 }
 
-console.log('═══════════════════════════════════════════════════════════');
+async function runDiagnostics() {
+  const wsRunning = await checkWebSocket();
+  check('Desktop App Running', wsRunning,
+    wsRunning
+      ? `WebSocket server responding on port ${WS_PORT}`
+      : `Not running. Start with: npm run app`,
+    false);
+
+  // 5. Check for Discord process
+  console.log('--- Discord ---\n');
+  
+  try {
+    let discordRunning = false;
+    if (platform === 'win32') {
+      const result = require('child_process').execSync('tasklist').toString();
+      discordRunning = result.toLowerCase().includes('discord');
+    } else {
+      const result = require('child_process').execSync('ps aux').toString();
+      discordRunning = result.toLowerCase().includes('discord');
+    }
+    check('Discord Desktop App', discordRunning,
+      discordRunning ? 'Running' : 'Not running - Discord must be open for Rich Presence');
+  } catch (error) {
+    check('Discord Desktop App', false, 'Could not check (permission denied)');
+  }
+
+  // 6. Check for old native host files (should be removed)
+  console.log('--- Cleanup Check ---\n');
+  
+  const oldNativeHost = path.resolve(__dirname, '../native-host');
+  const nativeHostExists = fs.existsSync(oldNativeHost);
+  check('Old Native Host Removed', !nativeHostExists,
+    nativeHostExists
+      ? 'WARNING: native-host/ directory still exists. It is no longer needed.'
+      : 'Clean - native host directory removed');
+
+  // Summary
+  console.log('====================================================');
+  if (criticalFailed) {
+    console.log('  CRITICAL ISSUES FOUND - Fix the errors above');
+  } else if (!wsRunning) {
+    console.log('  Desktop app is not running.');
+    console.log('  Start it with: npm run app');
+  } else {
+    console.log('  Everything looks good!');
+  }
+  console.log('====================================================');
+}
+
+runDiagnostics();

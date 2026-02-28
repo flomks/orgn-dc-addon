@@ -135,31 +135,20 @@ document.getElementById('checkExtensionBtn').addEventListener('click', async () 
   
   extensionStatus.style.display = 'block';
   
-  if (status.isNativeMessagingMode) {
-    if (status.connected && status.lastPing) {
-      const timeSince = Math.round(status.timeSinceLastPing / 1000);
-      extensionStatusText.innerHTML = `
-        ✅ <strong>Extension Connected</strong><br>
-        <small>Last message: ${timeSince} seconds ago</small><br>
-        <small>Time: ${new Date(status.lastPing).toLocaleTimeString()}</small>
-      `;
-    } else {
-      extensionStatusText.innerHTML = `
-        ⚠️ <strong>Extension Not Connected</strong><br>
-        <small>Running in Native Messaging Mode but no messages received yet</small><br>
-        <small>Try opening a registered website in your browser</small>
-      `;
-    }
+  if (status.connected && status.lastPing) {
+    const timeSince = Math.round(status.timeSinceLastPing / 1000);
+    extensionStatusText.innerHTML = `
+      <strong>Extension Connected</strong><br>
+      <small>Connected clients: ${status.clientCount || 1}</small><br>
+      <small>Last message: ${timeSince} seconds ago</small><br>
+      <small>WebSocket port: ${status.wsPort}</small>
+    `;
   } else {
     extensionStatusText.innerHTML = `
-      ℹ️ <strong>Standalone Mode - Manual Testing</strong><br>
-      <small>You started the app manually (npm run app)</small><br>
-      <small>✅ Use the "Test" tab to test Discord activities manually</small><br>
-      <small>ℹ️ For automatic web app detection, install the browser extension</small><br>
-      <small style="margin-top: 8px; display: block; color: #7289da;">
-        💡 <strong>Tip:</strong> Both modes can run simultaneously!<br>
-        <a href="#" onclick="window.electron.openExternal('https://github.com/flomks/orgn-dc-addon/blob/main/docs/DESKTOP-APP-MODES.md'); return false;" style="color: #7289da;">Learn more about app modes →</a>
-      </small>
+      <strong>Extension Not Connected</strong><br>
+      <small>WebSocket server running on port ${status.wsPort}</small><br>
+      <small>Make sure the browser extension is installed and enabled.</small><br>
+      <small>The extension will connect automatically when it detects this app.</small>
     `;
   }
   

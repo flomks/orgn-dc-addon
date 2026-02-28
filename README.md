@@ -1,244 +1,244 @@
-# Discord Rich Presence für Web-Apps
+# ORGN Discord Bridge
 
-Zeige deine Lieblings-Web-Apps als Discord-Aktivität mit Rich Presence!
+Show your favorite web apps as Discord Rich Presence activity.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-
-## 🎯 Was macht das?
-
-Dieses Tool ermöglicht es dir, **Web-Anwendungen** (YouTube, Spotify Web, GitHub, etc.) als **Discord Rich Presence** anzuzeigen - genau wie bei Spielen!
-
-**Beispiel in Discord:**
 ```
-👤 DeinUsername
-🎮 Spielt YouTube
-📺 Watching videos
-⏱️ seit 15 Minuten
+DeinUsername
+  Playing YouTube
+  Watching videos
+  for 15 minutes
 ```
 
-## ✨ Features
+## How It Works
 
-- 🎮 **Deine persönliche Rich Presence** (nicht für Bots!)
-- 🔒 **Opt-In System** - Nur Seiten die DU konfigurierst werden getrackt
-- 🖥️ **Desktop-App mit GUI** - Live-Logs, Status-Anzeige, Test-Interface
-- 🌐 **Browser Extension** - Automatische Erkennung konfigurierter Webseiten
-- 🎨 **Custom Bilder & Details** - Upload Assets zu Discord
-- 🔄 **Cross-Platform** - Windows, macOS, Linux
-- 📊 **Live-Monitoring** - Siehe genau was passiert
+```
+Browser Extension  ---WebSocket--->  Desktop App  ---RPC--->  Discord
+(detects websites)                   (Electron)              (shows activity)
+```
 
-## 🚀 Quick Start (5 Minuten)
+The **browser extension** detects which configured websites you visit. It sends this information to the **desktop app** via WebSocket. The desktop app sets your **Discord Rich Presence** accordingly.
 
-### 1. Installation
+## Quick Start
+
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Desktop-App starten
+### 2. Start the desktop app
 
 ```bash
 npm run app
 ```
 
-Ein Fenster öffnet sich mit Dashboard, Logs und Test-Interface.
+The app starts in the system tray. A window opens with Dashboard, Logs, Test, and Settings tabs.
 
-### 3. Discord Application erstellen
+### 3. Create a Discord Application
 
-1. Gehe zu https://discord.com/developers/applications
-2. Erstelle eine Application
-3. Kopiere die **Application ID**
-4. (Optional) Lade Bilder unter "Rich Presence → Art Assets" hoch
+1. Go to https://discord.com/developers/applications
+2. Click "New Application"
+3. Copy the **Application ID**
+4. Optional: Upload images under "Rich Presence" > "Art Assets"
 
-### 4. Teste es!
+### 4. Configure the desktop app
 
-In der Desktop-App:
-1. Gehe zum **"Test"** Tab
-2. Trage deine Application ID ein
-3. Fülle das Formular aus
-4. Klicke **"Set Test Activity"**
-5. Schaue in dein Discord-Profil! 🎉
+1. Open the desktop app window (click the tray icon)
+2. Go to the **Settings** tab
+3. Paste your Application ID and save
 
-## 📦 Komponenten
+### 5. Install the browser extension
 
-Dieses Projekt besteht aus drei Teilen:
+**Chrome / Edge:**
+1. Open `chrome://extensions/` (or `edge://extensions/`)
+2. Enable "Developer mode" (top right)
+3. Click "Load unpacked"
+4. Select the `extension/` folder from this project
 
-### 1. Desktop-App (Electron) ⭐ Empfohlen
+**Firefox:**
+1. Open `about:debugging#/runtime/this-firefox`
+2. Click "Load Temporary Add-on"
+3. Select `extension/manifest-firefox.json`
 
-**Starten:**
+### 6. Configure a website
+
+1. Open a website (e.g. youtube.com)
+2. Click the extension icon in your browser toolbar
+3. Fill in the form:
+   - **App Name**: What shows in Discord (e.g. "YouTube")
+   - **Details**: Description (e.g. "Watching videos")
+   - **State**: Status text (e.g. "Entertainment")
+   - **Large Image Key**: Asset name from your Discord Application
+4. Click "Add/Update Site"
+5. Check your Discord profile!
+
+## Architecture
+
+```
+extension/
+  background.js     WebSocket client, tab monitoring, storage
+  popup.js          Configuration UI
+  popup.html        Popup layout and styles
+  manifest.json     Chrome/Edge extension manifest
+
+desktop-app/
+  main.js           Electron main process, WebSocket server, Discord RPC
+  renderer.js       GUI logic (dashboard, logs, test, settings)
+  preload.js        IPC bridge between main and renderer
+  index.html        App layout
+  styles.css        Discord-themed styling
+
+lib/
+  DiscordClient.js  Shared Discord RPC client with reconnection logic
+```
+
+### Communication Flow
+
+1. You open youtube.com in Chrome
+2. Extension background.js detects the tab change
+3. background.js checks `chrome.storage.sync` for a matching app config
+4. Config found: background.js sends `setActivity` via WebSocket to desktop app
+5. Desktop app receives the message and calls Discord RPC
+6. Discord shows "Playing YouTube" on your profile
+
+### Extension <-> Desktop App Protocol
+
+The extension connects to `ws://127.0.0.1:7890`. Messages are JSON:
+
+```javascript
+// Extension -> Desktop App
+{ type: "ping" }
+{ type: "setActivity", activity: { details, state, ... }, clientId: "..." }
+{ type: "clearActivity" }
+{ type: "getStatus" }
+
+// Desktop App -> Extension
+{ type: "pong", timestamp: 1234567890 }
+{ type: "activitySet", success: true }
+{ type: "activityCleared", success: true }
+{ type: "welcome", discordConnected: true, user: {...} }
+{ type: "error", error: "message" }
+```
+
+## Desktop App
+
+### Starting
+
 ```bash
 npm run app
 ```
 
-**Features:**
-- ✅ Schöne GUI mit Dashboard, Logs, Test-Interface
-- ✅ Live-Logs in Echtzeit
-- ✅ Discord Status & Connection Monitor
-- ✅ System Tray Integration
-- ✅ Funktioniert standalone ODER mit Browser Extension
+The app runs in the system tray. Close the window to minimize it. Right-click the tray icon for options.
 
-**Wichtig:** Die App kann in zwei Modi laufen:
-- **Standalone:** Manuelle Tests ohne Extension
-- **Native Messaging:** Automatisch von Extension gestartet
+### Tabs
 
-**Anleitung:** Siehe [DESKTOP-APP-GUIDE.md](DESKTOP-APP-GUIDE.md) und [docs/DESKTOP-APP-MODES.md](docs/DESKTOP-APP-MODES.md)
+- **Dashboard**: Discord connection status, current activity, extension status
+- **Logs**: Real-time log viewer for all events
+- **Test**: Manually set a Discord activity without the extension
+- **Settings**: Discord Application ID, app behavior, autostart
 
-### 2. Browser Extension
+### Test Tab
 
-**Laden:**
-- **Chrome/Edge:** `chrome://extensions/` → "Entpackte Erweiterung laden" → `extension/` Ordner
-- **Firefox:** `about:debugging` → "Temporäres Add-on laden" → `extension/manifest-firefox.json`
+Use the Test tab to verify your setup works before configuring the extension:
+1. Enter your Discord Application ID
+2. Fill in Details, State, and Image Keys
+3. Click "Set Test Activity"
+4. Check your Discord profile
 
-**Features:**
-- ✅ Erkennt konfigurierte Webseiten automatisch
-- ✅ Popup-UI zur Konfiguration
-- ✅ Kommuniziert mit Desktop-App/Native Host
+## Browser Extension
 
-**Setup:** Siehe [docs/BROWSER-EXTENSION.md](docs/BROWSER-EXTENSION.md)
+### Popup UI
 
-### 3. Native Host (Optional - CLI ohne GUI)
+Click the extension icon to open the configuration popup:
+- **Current Page**: Shows the current website hostname
+- **App Configuration**: Form to set Rich Presence details for this site
+- **Configured Apps**: List of all saved configurations
+- **Test Connection**: Verifies the desktop app is reachable
+- **Clear Activity**: Removes the current Discord activity
 
-Unsichtbarer Hintergrund-Host ohne GUI. Nur wenn du keine Desktop-App willst.
+### Badge Indicator
 
-## 🎮 Verwendung
+The extension shows a badge on its icon:
+- Green dot: Activity is being sent for this tab
+- Red `!`: Desktop app is not connected
 
-### Mit Desktop-App (Empfohlen)
+### Storage
 
-**Standalone Testing:**
+Configurations are stored in `chrome.storage.sync`, which means they sync across your Chrome/Edge browsers if you are signed in.
+
+## Troubleshooting
+
+### Extension says "Desktop app not running"
+
+The desktop app must be running for the extension to work.
+
 ```bash
 npm run app
-# Gehe zu "Test" Tab und teste Activities direkt
 ```
 
-**Mit Browser Extension:**
-```bash
-# 1. Desktop-App starten
-npm run app
+### Discord does not show activity
 
-# 2. Extension mit Desktop-App verbinden
-npm run use-app
+Checklist:
+- [ ] Discord **Desktop** app is running (not the browser version)
+- [ ] Activity Status is enabled in Discord Settings
+- [ ] Application ID is correct (18-19 digit number)
+- [ ] Desktop app shows "Connected" on the Dashboard tab
+- [ ] Website is configured in the extension popup
 
-# 3. Browser neu starten
+### Extension badge shows red "!"
 
-# 4. Webseite konfigurieren:
-#    - Öffne YouTube (oder andere Seite)
-#    - Extension-Icon klicken
-#    - Formular ausfüllen
-#    - Speichern!
+The extension cannot reach the desktop app. Make sure:
+- Desktop app is running (`npm run app`)
+- No firewall is blocking localhost port 7890
 
-# 5. Desktop-App zeigt alle Logs live an!
-```
+### Images not showing in Discord
 
-### Nur Browser Extension (ohne GUI)
+- Asset names are case-sensitive: `youtube_logo` is not `YouTube_Logo`
+- Assets take a few minutes to propagate after upload
+- Use the exact name you gave the asset in the Discord Developer Portal
 
-```bash
-# Native Host registrieren (CLI-Modus)
-npm run install-host
-npm run use-cli
-
-# Extension ID hinzufügen (Chrome/Edge)
-npm run update-id
-
-# Browser neu starten - fertig!
-```
-
-## 🛠️ Verfügbare Commands
-
-```bash
-# Desktop-App
-npm run app              # Desktop-App starten (GUI)
-npm run use-app          # Extension mit Desktop-App verbinden
-
-# Native Host (CLI - kein GUI)
-npm run install-host     # Native Host registrieren
-npm run use-cli          # Extension mit CLI-Host verbinden
-npm run update-id        # Extension ID hinzufügen (Chrome/Edge)
-
-# Tools & Debugging
-npm run diagnose         # System-Check (empfohlen!)
-npm run test             # Native Host manuell testen
-npm run debug            # Debug-Modus mit Logs
-
-# Build
-npm run build:win        # Windows .exe erstellen
-npm run build:mac        # macOS .app erstellen
-npm run build:linux      # Linux Binary erstellen
-```
-
-## 📚 Dokumentation
-
-| Datei | Beschreibung |
-|-------|--------------|
-| **[DESKTOP-APP-GUIDE.md](DESKTOP-APP-GUIDE.md)** | Desktop-App Anleitung (GUI) |
-| **[FAQ.md](FAQ.md)** | Häufig gestellte Fragen |
-| **[docs/ANLEITUNG-DE.md](docs/ANLEITUNG-DE.md)** | Ausführliche deutsche Anleitung |
-| **[docs/DEBUGGING.md](docs/DEBUGGING.md)** | Fehlersuche & Problemlösung |
-| **[docs/BROWSER-EXTENSION.md](docs/BROWSER-EXTENSION.md)** | Browser Extension Setup |
-| **[PROJECT.md](PROJECT.md)** | Technische Dokumentation |
-
-## 🐛 Troubleshooting
-
-### Problem: Extension findet Native Host nicht
+### Run diagnostics
 
 ```bash
 npm run diagnose
-# Folge den Anweisungen
 ```
 
-### Problem: Discord zeigt keine Activity
+This checks all components and reports issues.
 
-**Checkliste:**
-- [ ] Discord Desktop App läuft (nicht Browser!)
-- [ ] Aktivitätsstatus in Discord aktiviert
-- [ ] Application ID korrekt
-- [ ] Desktop-App/Native Host läuft
+## Building for Production
 
-### Problem: VS Code öffnet sich
+Create installable versions with autostart support:
 
-✅ **Gelöst mit Desktop-App!**
 ```bash
-npm run use-app
-npm run app
+npm run build:win     # Windows (.exe installer)
+npm run build:mac     # macOS (.dmg)
+npm run build:linux   # Linux (.AppImage, .deb)
 ```
 
-Siehe [FAQ.md](FAQ.md) für mehr Lösungen.
+The installed version supports:
+- System autostart
+- Start menu / application launcher integration
+- Better performance
 
-## 🎨 Beispiele
+## Privacy
 
-Siehe [examples/](examples/) Ordner für vorgefertigte Konfigurationen:
-- YouTube, Spotify, Netflix
-- GitHub, VS Code Web, Figma
-- Google Docs, Notion
-- ... und mehr!
+- Only websites you explicitly configure are detected
+- Only the hostname is used for matching (e.g. `youtube.com`)
+- No page content, URLs, cookies, or passwords are accessed
+- Data is stored locally. Configurations sync via Chrome Sync if enabled.
+- Communication between extension and desktop app is local only (localhost)
 
-## 🔒 Privacy
+## Available Commands
 
-- ✅ Nur Seiten die du **explizit** konfigurierst werden erkannt
-- ✅ Nur Hostname wird intern verwendet (z.B. `youtube.com`)
-- ❌ Keine kompletten URLs
-- ❌ Keine Seiteninhalte
-- ❌ Keine Cookies oder Passwörter
+```bash
+npm run app           # Start the desktop app
+npm run diagnose      # Run diagnostic checks
+npm run build:win     # Build Windows installer
+npm run build:mac     # Build macOS app
+npm run build:linux   # Build Linux packages
+npm run test          # Run tests
+```
 
-## 🤝 Contributing
+## License
 
-Contributions sind willkommen! Öffne Issues oder Pull Requests.
-
-## 📄 Lizenz
-
-MIT License - siehe [LICENSE](LICENSE)
-
-## 🙏 Credits
-
-- **discord-rpc** - Discord RPC Client Library
-- **Electron** - Desktop-App Framework
-
-## 💡 Support
-
-Bei Problemen:
-1. Siehe [FAQ.md](FAQ.md)
-2. Führe `npm run diagnose` aus
-3. Öffne ein GitHub Issue
-
----
-
-**Viel Spaß! 🎉** Zeige deinen Freunden was du gerade machst!
+MIT

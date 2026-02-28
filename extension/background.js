@@ -1,27 +1,27 @@
-// Background Service Worker for Native Messaging - Optimized Version
-const NATIVE_HOST_NAME = "com.discord.richpresence.webapp";
+// Background Service Worker - WebSocket Communication with Desktop App
+const WS_URL = 'ws://127.0.0.1:7890';
 
 /**
- * Background service state management
+ * Background service that communicates with the ORGN Discord Bridge desktop app
+ * via WebSocket. The desktop app must be running for the extension to work.
  */
 class BackgroundService {
   constructor() {
     this.currentTab = null;
     this.currentActivity = null;
-    this.nativePort = null;
+    this.ws = null;
     this.reconnectTimer = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.baseReconnectDelay = 2000; // Start with 2 seconds
-    this.messageQueue = [];
-    this.isReconnecting = false;
+    this.maxReconnectAttempts = -1; // Unlimited - keep trying forever
+    this.baseReconnectDelay = 3000;
+    this.desktopAppConnected = false;
     
     this.initializeEventListeners();
-    this.connectNative();
+    this.connectToDesktopApp();
   }
 
   /**
-   * Initialize all event listeners with proper error handling
+   * Initialize all event listeners
    */
   initializeEventListeners() {
     // Tab activation listener
@@ -45,94 +45,100 @@ class BackgroundService {
       }
     });
 
-    // Runtime message listener
+    // Runtime message listener (from popup)
     chrome.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
       this.handleRuntimeMessage(message, sender, sendResponse);
-      return true; // Keep message channel open for async responses
+      return true;
     });
-
-    // Service worker lifecycle events
-    if (typeof self !== 'undefined' && self.addEventListener) {
-      self.addEventListener('install', () => {
-        console.log('[Background] Service worker installed');
-      });
-
-      self.addEventListener('activate', () => {
-        console.log('[Background] Service worker activated');
-      });
-    }
   }
 
   /**
-   * Connect to native host with exponential backoff retry logic
+   * Connect to the desktop app via WebSocket
    */
-  async connectNative() {
-    if (this.nativePort || this.isReconnecting) {
-      return;
+  connectToDesktopApp() {
+    if (this.ws && this.ws.readyState <= 1) {
+      return; // Already connected or connecting
     }
 
-    this.isReconnecting = true;
-    console.log('[Background] Connecting to native host...');
+    console.log('[Background] Connecting to desktop app...');
     
     try {
-      this.nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-      this.setupNativePortHandlers();
-      this.reconnectAttempts = 0;
-      this.isReconnecting = false;
+      this.ws = new WebSocket(WS_URL);
       
-      // Process any queued messages
-      await this.processMessageQueue();
+      this.ws.onopen = () => {
+        console.log('[Background] Connected to desktop app');
+        this.desktopAppConnected = true;
+        this.reconnectAttempts = 0;
+        
+        // Update badge to show connected state
+        this.setGlobalBadge('', '#43b581');
+        
+        // Check current tab and set activity if needed
+        this.refreshCurrentTab();
+      };
+      
+      this.ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          this.handleDesktopMessage(message);
+        } catch (error) {
+          console.error('[Background] Failed to parse message:', error);
+        }
+      };
+      
+      this.ws.onclose = () => {
+        console.log('[Background] Disconnected from desktop app');
+        this.ws = null;
+        this.desktopAppConnected = false;
+        
+        // Update badge to show disconnected state
+        this.setGlobalBadge('!', '#f04747');
+        
+        this.scheduleReconnect();
+      };
+      
+      this.ws.onerror = (error) => {
+        console.warn('[Background] WebSocket error');
+        // onclose will fire after this, which handles reconnection
+      };
       
     } catch (error) {
-      console.error('[Background] Failed to connect to native host:', error);
-      this.nativePort = null;
-      this.isReconnecting = false;
+      console.error('[Background] Failed to create WebSocket:', error);
+      this.ws = null;
+      this.desktopAppConnected = false;
       this.scheduleReconnect();
     }
   }
 
   /**
-   * Setup native port event handlers
+   * Handle messages from the desktop app
    */
-  setupNativePortHandlers() {
-    if (!this.nativePort) return;
-
-    this.nativePort.onMessage.addListener((message) => {
-      console.log('[Background] Received from native:', message);
-      this.handleNativeMessage(message);
-    });
-    
-    this.nativePort.onDisconnect.addListener(() => {
-      const error = chrome.runtime.lastError;
-      console.log('[Background] Native host disconnected:', error?.message || 'Unknown reason');
-      this.nativePort = null;
-      this.scheduleReconnect();
-    });
-  }
-
-  /**
-   * Handle messages from native host
-   */
-  handleNativeMessage(message) {
+  handleDesktopMessage(message) {
     switch (message.type) {
-      case 'connected':
-        console.log('[Background] Native host connected successfully');
-        // Restore activity if we had one
-        if (this.currentActivity) {
-          this.sendToNative({ type: 'setActivity', activity: this.currentActivity });
-        }
+      case 'welcome':
+        console.log('[Background] Desktop app welcome:', 
+          message.discordConnected ? 'Discord connected' : 'Discord not connected');
         break;
-      case 'error':
-        console.error('[Background] Native host error:', message.error);
+      case 'pong':
+        console.log('[Background] Pong received');
         break;
       case 'activitySet':
         console.log('[Background] Activity set successfully');
         break;
       case 'activityCleared':
-        console.log('[Background] Activity cleared successfully');
+        console.log('[Background] Activity cleared');
+        break;
+      case 'discordConnected':
+        console.log('[Background] Discord connected:', message.user?.username);
+        break;
+      case 'discordDisconnected':
+        console.log('[Background] Discord disconnected');
+        break;
+      case 'error':
+        console.error('[Background] Desktop app error:', message.error);
         break;
       default:
-        console.log('[Background] Unknown message type from native:', message.type);
+        console.log('[Background] Unknown message:', message.type);
     }
   }
 
@@ -144,65 +150,54 @@ class BackgroundService {
       clearTimeout(this.reconnectTimer);
     }
 
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`[Background] Max reconnection attempts (${this.maxReconnectAttempts}) reached`);
-      return;
-    }
-
-    // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+    // Exponential backoff: 3s, 6s, 12s, max 30s, then keep retrying at 30s
     const delay = Math.min(
       this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      30000 // Max 30 seconds
+      30000
     );
 
-    console.log(`[Background] Scheduling reconnection attempt ${this.reconnectAttempts + 1} in ${delay}ms`);
+    console.log(`[Background] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts + 1})`);
     
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
-      this.connectNative();
+      this.connectToDesktopApp();
     }, delay);
   }
 
   /**
-   * Send message to native host with queueing
+   * Send message to desktop app via WebSocket
    */
-  async sendToNative(message) {
-    if (!this.nativePort) {
-      console.log('[Background] Queuing message - not connected to native host');
-      this.messageQueue.push(message);
-      
-      // Try to reconnect
-      if (!this.isReconnecting) {
-        await this.connectNative();
-      }
-      return;
+  sendToDesktopApp(message) {
+    if (!this.ws || this.ws.readyState !== 1) {
+      console.warn('[Background] Cannot send - not connected to desktop app');
+      return false;
     }
     
     try {
-      console.log('[Background] Sending to native:', message);
-      this.nativePort.postMessage(message);
+      this.ws.send(JSON.stringify(message));
+      return true;
     } catch (error) {
-      console.error('[Background] Error sending to native:', error);
-      this.nativePort = null;
-      this.messageQueue.push(message);
-      this.scheduleReconnect();
+      console.error('[Background] Error sending message:', error);
+      return false;
     }
   }
 
   /**
-   * Process queued messages
+   * Refresh current tab activity
    */
-  async processMessageQueue() {
-    while (this.messageQueue.length > 0 && this.nativePort) {
-      const message = this.messageQueue.shift();
-      await this.sendToNative(message);
-      // Small delay between messages to avoid overwhelming
-      await new Promise(resolve => setTimeout(resolve, 10));
+  async refreshCurrentTab() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        await this.updateActivity(tab);
+      }
+    } catch (error) {
+      console.warn('[Background] Error refreshing current tab:', error);
     }
   }
 
   /**
-   * Update activity based on current tab with improved caching and error handling
+   * Update activity based on current tab
    */
   async updateActivity(tab) {
     if (!tab || !tab.url) {
@@ -220,18 +215,16 @@ class BackgroundService {
         return;
       }
       
-      // Get stored apps configuration with timeout
+      // Get stored apps configuration
       const apps = await this.getStorageWithTimeout('apps', {});
       
-      // Find matching configuration with improved pattern matching
+      // Find matching configuration
       const appConfig = this.findMatchingAppConfig(hostname, apps);
       
       if (appConfig && appConfig.enabled !== false) {
         await this.setActivityForApp(tab, url, appConfig);
       } else {
-        // Clear badge for non-configured sites
         await this.setBadge(tab.id, '', '');
-        console.log('[Background] Not a registered app, keeping current activity');
       }
     } catch (error) {
       console.error('[Background] Error updating activity:', error);
@@ -239,21 +232,16 @@ class BackgroundService {
   }
 
   /**
-   * Find matching app configuration with improved pattern matching
+   * Find matching app configuration
    */
   findMatchingAppConfig(hostname, apps) {
     for (const [pattern, config] of Object.entries(apps)) {
-      // Exact match
       if (hostname === pattern) {
         return config;
       }
-      
-      // Subdomain match (e.g., music.youtube.com matches youtube.com)
       if (hostname.endsWith('.' + pattern)) {
         return config;
       }
-      
-      // Pattern contains hostname (backward compatibility)
       if (hostname.includes(pattern) || pattern.includes(hostname)) {
         return config;
       }
@@ -279,21 +267,22 @@ class BackgroundService {
     this.currentActivity = { activity };
     const messageData = { type: 'setActivity', activity };
     
-    // Include clientId if configured
     if (appConfig.clientId) {
       messageData.clientId = appConfig.clientId;
       this.currentActivity.clientId = appConfig.clientId;
-      console.log('[Background] Setting activity with site-specific client ID:', messageData);
-    } else {
-      console.log('[Background] Setting activity (using host app default client ID):', messageData);
     }
     
-    await this.sendToNative(messageData);
-    await this.setBadge(tab.id, '●', '#43b581');
+    const sent = this.sendToDesktopApp(messageData);
+    
+    if (sent) {
+      await this.setBadge(tab.id, '●', '#43b581');
+    } else {
+      await this.setBadge(tab.id, '!', '#f04747');
+    }
   }
 
   /**
-   * Set extension badge with error handling
+   * Set extension badge for a specific tab
    */
   async setBadge(tabId, text, color) {
     try {
@@ -307,7 +296,21 @@ class BackgroundService {
   }
 
   /**
-   * Get storage data with timeout to prevent hanging
+   * Set global badge (no tabId)
+   */
+  async setGlobalBadge(text, color) {
+    try {
+      await chrome.action.setBadgeText({ text });
+      if (color) {
+        await chrome.action.setBadgeBackgroundColor({ color });
+      }
+    } catch (error) {
+      console.warn('[Background] Error setting global badge:', error);
+    }
+  }
+
+  /**
+   * Get storage data with timeout
    */
   async getStorageWithTimeout(key, defaultValue, timeout = 5000) {
     return new Promise((resolve) => {
@@ -329,46 +332,50 @@ class BackgroundService {
   }
 
   /**
-   * Handle runtime messages with improved error handling
+   * Handle runtime messages from popup
    */
   async handleRuntimeMessage(message, sender, sendResponse) {
-    console.log('[Background] Received message:', message);
-    
     try {
       switch (message.type) {
-        case 'getCurrentTab':
+        case 'getCurrentTab': {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           sendResponse({ tab: tab || null });
           break;
+        }
+        
+        case 'getConnectionStatus':
+          sendResponse({
+            desktopAppConnected: this.desktopAppConnected,
+            reconnectAttempts: this.reconnectAttempts
+          });
+          break;
           
-        case 'updateActivity':
+        case 'updateActivity': {
           const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (currentTab) {
             await this.updateActivity(currentTab);
           }
           sendResponse({ success: true });
           break;
-          
+        }
+        
         case 'testConnection':
-          await this.sendToNative({ type: 'ping' });
-          sendResponse({ success: true });
+          if (this.desktopAppConnected) {
+            this.sendToDesktopApp({ type: 'ping' });
+            sendResponse({ success: true });
+          } else {
+            sendResponse({ success: false, error: 'Desktop app is not running. Please start it first.' });
+          }
           break;
           
         case 'clearActivity':
           this.currentActivity = null;
-          await this.sendToNative({ type: 'clearActivity' });
+          if (this.desktopAppConnected) {
+            this.sendToDesktopApp({ type: 'clearActivity' });
+          }
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (activeTab) {
             await this.setBadge(activeTab.id, '', '');
-          }
-          sendResponse({ success: true });
-          break;
-          
-        case 'pageVisible':
-        case 'titleChanged':
-          // Handle content script notifications
-          if (sender.tab) {
-            await this.updateActivity(sender.tab);
           }
           sendResponse({ success: true });
           break;
@@ -378,25 +385,8 @@ class BackgroundService {
           sendResponse({ success: false, error: 'Unknown message type' });
       }
     } catch (error) {
-      console.error('[Background] Error handling runtime message:', error);
+      console.error('[Background] Error handling message:', error);
       sendResponse({ success: false, error: error.message });
-    }
-  }
-
-  /**
-   * Initialize the background service on startup
-   */
-  async initialize() {
-    console.log('[Background] Service worker started');
-    
-    // Update activity for current tab on startup
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        await this.updateActivity(tab);
-      }
-    } catch (error) {
-      console.warn('[Background] Error initializing current tab activity:', error);
     }
   }
 
@@ -409,29 +399,23 @@ class BackgroundService {
       this.reconnectTimer = null;
     }
     
-    if (this.nativePort) {
+    if (this.ws) {
       try {
-        this.nativePort.disconnect();
+        this.ws.close();
       } catch (error) {
-        console.warn('[Background] Error disconnecting native port:', error);
+        console.warn('[Background] Error closing WebSocket:', error);
       }
-      this.nativePort = null;
+      this.ws = null;
     }
   }
 }
 
 // Initialize the background service
 const backgroundService = new BackgroundService();
-backgroundService.initialize();
 
 // Handle service worker lifecycle
 if (typeof self !== 'undefined') {
   self.addEventListener('beforeunload', () => {
     backgroundService.cleanup();
   });
-}
-
-// Export for testing (if needed)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { BackgroundService };
 }

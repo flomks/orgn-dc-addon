@@ -1,148 +1,105 @@
-# Beispiel-Konfigurationen
+# Example Configurations
 
-Dieser Ordner enthält vorgefertigte Konfigurationen für beliebte Web-Apps.
+Pre-made configurations for popular web apps.
 
-## Verwendung
+## How to Use
 
-### Automatischer Import (Coming Soon)
+1. Open `example-configs.json`
+2. Find the app you want (e.g. `youtube.com`)
+3. Open that website in your browser
+4. Click the extension icon
+5. Copy the values from the example into the form
+6. Replace `YOUR_DISCORD_APPLICATION_ID` with your actual Application ID
+7. Save
 
-Eine Import-Funktion wird in einer zukünftigen Version hinzugefügt.
+## Creating Custom Icons
 
-### Manueller Import
+### Where to Find Logos
 
-1. Öffne `example-configs.json`
-2. Suche die gewünschte App (z.B. `youtube.com`)
-3. Kopiere die Konfiguration
-4. Öffne die entsprechende Website im Browser
-5. Klicke auf das Extension-Icon
-6. Füge die Werte aus der Beispiel-Konfiguration ein
-7. **WICHTIG:** Ersetze `YOUR_DISCORD_APPLICATION_ID` mit deiner echten Application ID
+- [Simple Icons](https://simpleicons.org/) - SVG brand logos
+- Official brand/press pages of the website
+- Website favicon scaled to 1024x1024
 
-## Eigene Icons erstellen
+### Upload to Discord
 
-### Wo finde ich Logos?
+1. Go to https://discord.com/developers/applications
+2. Select your Application
+3. "Rich Presence" > "Art Assets"
+4. Click "Add Image(s)"
+5. Upload your image and give it a name
+6. Use that name as the Image Key in the extension
 
-1. **Offizielle Quellen:**
-   - Pressematerialien der jeweiligen Website
-   - Brand Assets / Media Kits
-   - Beispiel: https://about.youtube.com/press/brand-resources/
+### Requirements
 
-2. **Icon-Datenbanken:**
-   - https://simpleicons.org/ (SVG-Logos von Marken)
-   - https://icons8.com/ (kostenlose Icons)
-   - https://flaticon.com/ (kostenlose Icons)
+- Size: 1024x1024 pixels recommended (minimum 512x512)
+- Format: PNG with transparent background, or JPG
+- Max file size: 5 MB
+- Naming: lowercase, no spaces, use underscores (e.g. `youtube_logo`)
 
-3. **Eigene Screenshots:**
-   - Favicon der Website als Basis nehmen
-   - Mit einem Bildbearbeitungsprogramm auf 1024x1024 skalieren
-   - Transparenten Hintergrund hinzufügen
+## Example Configs
 
-### Icon-Vorbereitung
-
-```bash
-# Empfohlene Größe
-1024x1024 Pixel
-
-# Format
-PNG mit transparentem Hintergrund (empfohlen)
-oder JPG
-
-# Dateigröße
-< 5 MB
-```
-
-### Icon hochladen
-
-1. Discord Developer Portal: https://discord.com/developers/applications
-2. Deine Application auswählen
-3. "Rich Presence" → "Art Assets"
-4. "Add Image(s)" klicken
-5. Bild hochladen und benennen
-6. Namen in Extension-Konfiguration verwenden
-
-## Tipps für gute Konfigurationen
-
-### Details & State
-
-**Details:** Was machst du gerade?
-```
-Gut: "Watching videos"
-Schlecht: "YouTube"
-```
-
-**State:** Kontext oder Kategorie
-```
-Gut: "Entertainment"
-Schlecht: "On YouTube"
-```
-
-### Image Keys
-
-- Verwende aussagekräftige Namen: `youtube`, nicht `img1`
-- Kleinbuchstaben ohne Leerzeichen
-- Verwende Unterstriche statt Bindestriche: `google_docs` statt `google-docs`
-
-### Enabled Flag
-
-Setze `"enabled": false` für Apps, die du vorübergehend nicht anzeigen möchtest, ohne die Konfiguration zu löschen.
-
-## Häufige Use Cases
-
-### Produktivität zeigen
+### Entertainment
 
 ```json
 {
-  "notion.so": {
-    "name": "Notion",
-    "details": "Planning my day",
-    "state": "Productive",
-    "largeImageKey": "notion"
-  }
-}
-```
-
-### Gaming/Entertainment
-
-```json
-{
+  "youtube.com": {
+    "name": "YouTube",
+    "details": "Watching videos",
+    "state": "Entertainment",
+    "largeImageKey": "youtube"
+  },
   "twitch.tv": {
     "name": "Twitch",
-    "details": "Watching [Streamer Name]",
+    "details": "Watching streams",
     "state": "Entertainment",
     "largeImageKey": "twitch"
+  },
+  "netflix.com": {
+    "name": "Netflix",
+    "details": "Watching a show",
+    "state": "Entertainment",
+    "largeImageKey": "netflix"
   }
 }
 ```
 
-### Professionelles Arbeiten
+### Productivity
 
 ```json
 {
+  "github.com": {
+    "name": "GitHub",
+    "details": "Browsing repositories",
+    "state": "Development",
+    "largeImageKey": "github"
+  },
+  "notion.so": {
+    "name": "Notion",
+    "details": "Taking notes",
+    "state": "Productive",
+    "largeImageKey": "notion"
+  },
   "figma.com": {
     "name": "Figma",
-    "details": "Designing UI components",
-    "state": "Client Project",
+    "details": "Designing",
+    "state": "Creative Work",
     "largeImageKey": "figma"
   }
 }
 ```
 
-## Mehrere Konfigurationen für eine Domain
+## Tips
 
-Aktuell unterstützt die Extension nur eine Konfiguration pro Domain. Für verschiedene Kontexte (z.B. YouTube für Gaming-Videos vs. Tutorials) kannst du:
+**Details** should describe what you are doing:
+- Good: "Watching videos"
+- Bad: "YouTube"
 
-1. Die Konfiguration manuell über das Popup ändern
-2. Verschiedene Discord Applications für verschiedene Zwecke erstellen
-3. In einer zukünftigen Version: Profile-System nutzen (Coming Soon)
+**State** should give context:
+- Good: "Entertainment"
+- Bad: "On YouTube"
 
-## Beitragen
+**Image Keys** should be descriptive:
+- Good: `youtube_logo`
+- Bad: `img1`
 
-Hast du eine gute Konfiguration für eine beliebte Web-App? 
-
-Öffne einen Pull Request und füge sie zu `example-configs.json` hinzu!
-
-Bitte stelle sicher:
-- ✅ Der Name ist korrekt geschrieben
-- ✅ Details und State sind aussagekräftig
-- ✅ Image Keys verwenden sinnvolle Namen
-- ✅ Die Konfiguration ist getestet
+Set `"enabled": false` to temporarily disable an app without deleting its configuration.

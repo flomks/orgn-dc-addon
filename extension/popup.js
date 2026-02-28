@@ -60,6 +60,9 @@ class PopupController {
     try {
       this.setLoadingState(true);
       
+      // Check desktop app connection first
+      await this.checkDesktopAppConnection();
+      
       await Promise.all([
         this.loadCurrentTab(),
         this.loadAppsList()
@@ -75,6 +78,34 @@ class PopupController {
     } finally {
       this.setLoadingState(false);
     }
+  }
+
+  /**
+   * Check if the desktop app is running and connected
+   */
+  async checkDesktopAppConnection() {
+    try {
+      const response = await this.sendRuntimeMessage({ type: 'getConnectionStatus' }, 2000);
+      
+      if (!response || !response.desktopAppConnected) {
+        this.showDesktopAppWarning();
+      }
+    } catch (error) {
+      this.showDesktopAppWarning();
+    }
+  }
+
+  /**
+   * Show warning that desktop app is not running
+   */
+  showDesktopAppWarning() {
+    const statusEl = document.getElementById('statusMessage');
+    if (!statusEl) return;
+    
+    statusEl.innerHTML = '<strong>Desktop app not running!</strong><br><small>Start the ORGN Discord Bridge desktop app first (npm run app)</small>';
+    statusEl.className = 'status error';
+    statusEl.classList.remove('hidden');
+    statusEl.setAttribute('role', 'alert');
   }
 
   /**
@@ -561,18 +592,19 @@ class PopupController {
    */
   async testConnection() {
     try {
-      this.showStatus('Testing connection...', 'info');
+      this.showStatus('Testing connection to desktop app...', 'info');
       
       const response = await this.sendRuntimeMessage({ type: 'testConnection' });
       
       if (response && response.success) {
-        this.showStatus('✅ Connection successful!', 'success');
+        this.showStatus('Connection to desktop app successful!', 'success');
       } else {
-        throw new Error('Keine Antwort vom Background-Script');
+        const errorMsg = response?.error || 'Desktop app is not running. Please start it first.';
+        this.showStatus(errorMsg, 'error', 8000);
       }
     } catch (error) {
       console.error('Error testing connection:', error);
-      this.showStatus('❌ Connection error: ' + error.message, 'error');
+      this.showStatus('Desktop app not reachable. Is it running?', 'error', 8000);
     }
   }
 
