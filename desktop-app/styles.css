@@ -531,3 +531,8 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* Settings-specific spacing */
+#settingsForm {
+  margin-top: 24px;
+}
