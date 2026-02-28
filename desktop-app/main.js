@@ -11,6 +11,9 @@ const MAX_LOGS = 1000;
 let extensionConnected = false;
 let lastExtensionPing = null;
 let storedClientId = null;
+let appSettings = {
+  quitOnClose: false // Default: minimize to tray instead of quitting
+};
 
 // Log function
 function addLog(level, ...args) {
@@ -34,6 +37,51 @@ function addLog(level, ...args) {
 // Get the path for the stored Discord key
 function getStoredKeyPath() {
   return path.join(app.getPath('userData'), 'discord-key.enc');
+}
+
+// Get the path for app settings
+function getAppSettingsPath() {
+  return path.join(app.getPath('userData'), 'app-settings.json');
+}
+
+// Load app settings from disk
+function loadAppSettings() {
+  try {
+    const settingsPath = getAppSettingsPath();
+    
+    if (!fs.existsSync(settingsPath)) {
+      return { quitOnClose: false };
+    }
+    
+    const data = fs.readFileSync(settingsPath, 'utf8');
+    const settings = JSON.parse(data);
+    return settings;
+  } catch (error) {
+    addLog('ERROR', 'Failed to load app settings:', error.message);
+    return { quitOnClose: false };
+  }
+}
+
+// Save app settings to disk
+function saveAppSettings(settings) {
+  try {
+    const settingsPath = getAppSettingsPath();
+    
+    // Ensure user data directory exists
+    const userDataPath = app.getPath('userData');
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+    }
+    
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    appSettings = settings;
+    addLog('INFO', 'App settings saved');
+    
+    return { success: true };
+  } catch (error) {
+    addLog('ERROR', 'Failed to save app settings:', error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 // Load stored client ID from disk
@@ -201,21 +249,19 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     backgroundColor: '#2c2f33',
-    skipTaskbar: false  // Show in taskbar when window is visible
+    skipTaskbar: true,  // Always hide from taskbar - only show in system tray
+    show: false  // Don't show immediately
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
+    if (!app.isQuitting && !appSettings.quitOnClose) {
+      // Minimize to tray instead of quitting
       event.preventDefault();
       mainWindow.hide();
-      mainWindow.setSkipTaskbar(true);  // Hide from taskbar when minimized
     }
-  });
-
-  mainWindow.on('show', () => {
-    mainWindow.setSkipTaskbar(false);  // Show in taskbar when visible
+    // If quitOnClose is true or app is quitting, allow window to close
   });
 
   mainWindow.on('closed', () => {
@@ -260,31 +306,30 @@ function createTray() {
       },
       { type: 'separator' },
       {
-        label: mainWindow && mainWindow.isVisible() ? 'Hide Window' : 'Show Window',
+        label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
         click: () => {
           if (mainWindow) {
             if (mainWindow.isVisible()) {
               mainWindow.hide();
-              mainWindow.setSkipTaskbar(true);
             } else {
               mainWindow.show();
-              mainWindow.setSkipTaskbar(false);
             }
           } else {
             createWindow();
+            mainWindow.show();
           }
           updateTrayMenu();
         }
       },
       {
-        label: 'Clear Activity',
+        label: 'Activity löschen',
         click: () => {
           clearActivity();
         }
       },
       { type: 'separator' },
       {
-        label: 'Quit',
+        label: 'Beenden',
         click: () => {
           app.isQuitting = true;
           app.quit();
@@ -303,13 +348,12 @@ function createTray() {
     if (mainWindow) {
       if (mainWindow.isVisible()) {
         mainWindow.hide();
-        mainWindow.setSkipTaskbar(true);
       } else {
         mainWindow.show();
-        mainWindow.setSkipTaskbar(false);
       }
     } else {
       createWindow();
+      mainWindow.show();
     }
     updateTrayMenu();
   });
@@ -377,6 +421,14 @@ ipcMain.handle('get-storage-info', () => {
     storageLocation: getStoredKeyPath(),
     hasStoredKey: storedClientId !== null
   };
+});
+
+ipcMain.handle('get-app-settings', () => {
+  return appSettings;
+});
+
+ipcMain.handle('save-app-settings', (event, settings) => {
+  return saveAppSettings(settings);
 });
 
 // Native Messaging Handler (for browser extension)
@@ -500,8 +552,12 @@ app.whenReady().then(() => {
     addLog('INFO', 'Loaded stored Discord client ID');
   }
   
-  createWindow();
+  // Load app settings on startup
+  appSettings = loadAppSettings();
+  addLog('INFO', 'App settings loaded. Quit on close:', appSettings.quitOnClose);
+  
   createTray();
+  createWindow();
   
   // Send initial connected message for native messaging
   if (process.stdin.isTTY === false) {

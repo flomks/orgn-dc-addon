@@ -351,6 +351,10 @@ async function loadSettingsView() {
       document.getElementById('currentKeyStatus').textContent = 'No key stored';
     }
     
+    // Load app settings
+    const appSettings = await window.electron.getAppSettings();
+    document.getElementById('quitOnClose').checked = appSettings.quitOnClose || false;
+    
     // Update storage information
     updateStorageInfo();
     
@@ -484,6 +488,26 @@ document.getElementById('clearStoredKeyBtn').addEventListener('click', async () 
   } catch (error) {
     console.error('Error clearing key:', error);
     showSettingsStatus('Error clearing key: ' + error.message, 'error');
+  }
+});
+
+// App Settings Form Handler
+document.getElementById('appSettingsForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  try {
+    const quitOnClose = document.getElementById('quitOnClose').checked;
+    
+    const result = await window.electron.saveAppSettings({ quitOnClose });
+    
+    if (result.success) {
+      showSettingsStatus('Anwendungseinstellungen gespeichert!', 'success');
+    } else {
+      showSettingsStatus('Fehler beim Speichern: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error saving app settings:', error);
+    showSettingsStatus('Fehler beim Speichern: ' + error.message, 'error');
   }
 });
 
