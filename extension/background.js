@@ -155,8 +155,16 @@ function parseOrgnPage(title, url) {
 
 // ── Activity Management ──────────────────────────────────────────
 
+async function isTrackingPaused() {
+  const stored = await chrome.storage.sync.get(['trackingPaused']);
+  return stored.trackingPaused === true;
+}
+
 async function checkActiveTab() {
   try {
+    // Skip everything if tracking is paused
+    if (await isTrackingPaused()) return;
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.url) return;
 
@@ -285,6 +293,19 @@ async function handlePopupMessage(message) {
       checkActiveTab();
       return { success: true, orgnSessionStart: newStart };
     }
+
+    case 'pauseTracking':
+      await chrome.storage.sync.set({ trackingPaused: true });
+      send({ type: 'clearActivity' });
+      setBadge('||', '#f59e0b');
+      return { success: true };
+
+    case 'resumeTracking':
+      await chrome.storage.sync.set({ trackingPaused: false });
+      lastOrgnState = null; // force re-send on next check
+      setBadge('', '#22c55e');
+      checkActiveTab();
+      return { success: true };
 
     default:
       return { error: 'Unknown message type' };

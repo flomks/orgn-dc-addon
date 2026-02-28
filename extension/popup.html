@@ -231,6 +231,84 @@
       border-color: #ef4444;
     }
 
+    /* Pause toggle */
+    .pause-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+
+    .pause-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ffffff;
+    }
+
+    .pause-sublabel {
+      font-size: 11px;
+      color: #71717a;
+      margin-top: 2px;
+    }
+
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #3f3f46;
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      bottom: 3px;
+      background: #ffffff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: #22c55e;
+    }
+
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(18px);
+    }
+
+    .paused-banner {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      color: #f59e0b;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -255,6 +333,21 @@
   </div>
 
   <div class="content">
+    <!-- Paused banner -->
+    <div id="pausedBanner" class="paused-banner hidden">Tracking is paused</div>
+
+    <!-- Tracking toggle -->
+    <div class="pause-card">
+      <div>
+        <div class="pause-label">Tracking</div>
+        <div class="pause-sublabel" id="toggleSublabel">Activity is shared on Discord</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="trackingToggle" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
     <!-- When on ORGN -->
     <div id="activeView" class="hidden">
       <div class="card">

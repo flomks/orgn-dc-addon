@@ -68,7 +68,29 @@ async function init() {
     $('inactiveView').classList.remove('hidden');
   }
 
-  // 5. Buttons
+  // 5. Tracking toggle (persisted in chrome.storage.sync)
+  const pauseState = await chrome.storage.sync.get(['trackingPaused']);
+  const isPaused = pauseState.trackingPaused === true;
+  const toggle = $('trackingToggle');
+  toggle.checked = !isPaused;
+  updatePauseUI(isPaused);
+
+  toggle.addEventListener('change', async () => {
+    const pausing = !toggle.checked;
+    try {
+      if (pausing) {
+        await sendMessage({ type: 'pauseTracking' }, 3000);
+      } else {
+        await sendMessage({ type: 'resumeTracking' }, 3000);
+      }
+    } catch (e) {
+      // Fallback: write directly to storage if SW is unavailable
+      await chrome.storage.sync.set({ trackingPaused: pausing });
+    }
+    updatePauseUI(pausing);
+  });
+
+  // 6. Buttons
   $('resetSessionBtn').addEventListener('click', async () => {
     try {
       const result = await sendMessage({ type: 'resetSession' }, 3000);
@@ -85,6 +107,15 @@ async function init() {
     $('inactiveView').classList.remove('hidden');
     setOrgnStatus(false);
   });
+}
+
+// ── Pause UI ─────────────────────────────────────────────────────
+
+function updatePauseUI(paused) {
+  $('pausedBanner').classList.toggle('hidden', !paused);
+  $('toggleSublabel').textContent = paused
+    ? 'Discord activity is hidden'
+    : 'Activity is shared on Discord';
 }
 
 // ── Status pills ─────────────────────────────────────────────────
