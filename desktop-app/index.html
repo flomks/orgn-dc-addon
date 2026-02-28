@@ -8,31 +8,18 @@
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
-    <header class="header">
-      <div class="header-left">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
         <h1>ORGN Discord Bridge</h1>
-        <span class="version">v1.0.0</span>
       </div>
-      <div class="header-right">
-        <div id="connectionStatus" class="status disconnected">
-          <span class="status-dot"></span>
-          <span class="status-text">Disconnected</span>
-        </div>
-      </div>
-    </header>
-
-    <!-- Main Content -->
-    <div class="main-content">
-      <!-- Sidebar -->
-      <aside class="sidebar">
-        <nav class="nav">
+      
+      <nav class="sidebar-nav">
+        <div class="sidebar-nav-section">
           <button class="nav-item active" data-view="dashboard">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
+              <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path>
+              <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
             </svg>
             Dashboard
           </button>
@@ -42,7 +29,6 @@
               <polyline points="14 2 14 8 20 8"></polyline>
               <line x1="16" y1="13" x2="8" y2="13"></line>
               <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10 9 9 9 8 9"></polyline>
             </svg>
             Logs
           </button>
@@ -53,227 +39,235 @@
             Test
           </button>
           <button class="nav-item" data-view="settings">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v6m0 6v6m6-12h-6m-6 0h6"></path>
             </svg>
             Settings
           </button>
-        </nav>
-      </aside>
+        </div>
+      </nav>
 
-      <!-- Content Area -->
-      <main class="content">
+      <div class="sidebar-footer">
+        <div id="connectionStatus" class="status-badge disconnected">
+          <span class="status-dot"></span>
+          <span id="connectionStatusText">Disconnected</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-header">
+        <h2 id="viewTitle">Dashboard</h2>
+      </div>
+
+      <div class="content-body">
         <!-- Dashboard View -->
-        <div id="dashboardView" class="view active">
-          <section class="card">
-            <h2>Discord Connection</h2>
-            <div id="discordInfo" class="discord-info">
+        <div id="dashboardView" class="tab-content active">
+          <div class="card">
+            <div class="card-header">
+              <h3>Discord Connection</h3>
+            </div>
+            <div class="card-body">
               <div class="info-row">
-                <span class="label">Status:</span>
-                <span id="discordStatus" class="value">Not connected</span>
+                <span class="info-label">Status</span>
+                <span id="discordStatus" class="info-value">Not connected</span>
               </div>
               <div class="info-row">
-                <span class="label">User:</span>
-                <span id="discordUser" class="value">—</span>
+                <span class="info-label">User</span>
+                <span id="discordUser" class="info-value">—</span>
               </div>
             </div>
-          </section>
+          </div>
 
-          <section class="card">
-            <h2>Current Activity</h2>
-            <div id="currentActivity" class="activity-display">
-              <p class="empty-state">No activity active</p>
+          <div class="card">
+            <div class="card-header">
+              <h3>Current Activity</h3>
             </div>
-          </section>
+            <div class="card-body">
+              <div id="currentActivity">
+                <div class="empty-state">
+                  <div class="empty-state-icon">🎮</div>
+                  <div class="empty-state-title">No activity</div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-          <section class="card">
-            <h2>Quick Actions</h2>
-            <div class="button-grid">
-              <button id="clearActivityBtn" class="btn btn-danger">
-                Clear Activity
-              </button>
-              <button id="testConnectionBtn" class="btn btn-primary">
-                Test Discord Connection
-              </button>
+          <div class="card">
+            <div class="card-header">
+              <h3>Extension Status</h3>
             </div>
-          </section>
+            <div class="card-body">
+              <button id="checkExtensionBtn" class="btn btn-secondary mb-4">Check Extension</button>
+              <div id="extensionStatus" class="hidden">
+                <p id="extensionStatusText" style="color: #a1a1aa; font-size: 13px;"></p>
+              </div>
+            </div>
+          </div>
 
-          <section class="card">
-            <h2>Extension Communication</h2>
-            <div class="button-grid">
-              <button id="waitForExtensionBtn" class="btn btn-secondary">
-                Wait for Extension Ping
-              </button>
-              <button id="checkExtensionBtn" class="btn btn-secondary">
-                Check Extension Status
-              </button>
-            </div>
-            <div id="extensionStatus" class="info-box" style="margin-top: 12px; display: none;">
-              <p id="extensionStatusText"></p>
-            </div>
-          </section>
+          <div class="btn-group">
+            <button id="clearActivityBtn" class="btn btn-danger">Clear Activity</button>
+            <button id="testConnectionBtn" class="btn btn-primary">Test Connection</button>
+          </div>
         </div>
 
         <!-- Logs View -->
-        <div id="logsView" class="view">
-          <div class="logs-header">
-            <h2>System Logs</h2>
-            <div class="logs-controls">
-              <label class="checkbox">
-                <input type="checkbox" id="autoScrollLogs" checked>
-                <span>Auto-scroll</span>
-              </label>
-              <button id="clearLogsBtn" class="btn btn-small">Clear Logs</button>
+        <div id="logsView" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h3>System Logs</h3>
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #a1a1aa; cursor: pointer;">
+                  <input type="checkbox" id="autoScrollLogs" checked>
+                  Auto-scroll
+                </label>
+                <button id="clearLogsBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">Clear</button>
+              </div>
             </div>
+            <div id="logsContainer" class="logs-container"></div>
           </div>
-          <div id="logsContainer" class="logs-container"></div>
         </div>
 
         <!-- Test View -->
-        <div id="testView" class="view">
-          <section class="card">
-            <h2>Test Discord Activity</h2>
-            <form id="testForm" class="form">
-              <div class="form-group">
-                <label for="testClientId">Discord Application ID (optional)</label>
-                <input type="text" id="testClientId" placeholder="Uses stored ID from Settings">
-                <small>Leave empty to use the Application ID stored in Settings. Alternatively, enter a specific ID for testing.</small>
-              </div>
-
-              <div class="form-group">
-                <label for="testDetails">Details</label>
-                <input type="text" id="testDetails" placeholder="Testing Rich Presence" value="Testing Rich Presence">
-              </div>
-
-              <div class="form-group">
-                <label for="testState">State</label>
-                <input type="text" id="testState" placeholder="Desktop App" value="Desktop App">
-              </div>
-
-              <div class="form-group">
-                <label for="testLargeImageKey">Large Image Key</label>
-                <input type="text" id="testLargeImageKey" placeholder="default" value="default">
-              </div>
-
-              <div class="form-group">
-                <label for="testLargeImageText">Large Image Text</label>
-                <input type="text" id="testLargeImageText" placeholder="Discord Rich Presence" value="Discord Rich Presence">
-              </div>
-
-              <div class="button-group">
-                <button type="submit" class="btn btn-primary">Set Test Activity</button>
-                <button type="button" id="clearTestActivityBtn" class="btn btn-secondary">Clear Activity</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="card">
-            <h3>Info</h3>
-            <div class="info-box">
-              <p>Use this area to test Rich Presence Activities.</p>
-              <p>The activity will be displayed in your Discord profile.</p>
-              <p><strong>Note:</strong> Discord Desktop App must be running!</p>
-              <p><strong>Application ID:</strong> If you leave the Application ID empty, the ID stored in Settings will be used automatically. You can also enter a different ID for testing here.</p>
+        <div id="testView" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h3>Test Discord Activity</h3>
             </div>
-          </section>
+            <div class="card-body">
+              <form id="testForm">
+                <div class="form-group">
+                  <label class="form-label" for="testClientId">Discord Application ID (optional)</label>
+                  <input class="form-input" type="text" id="testClientId" placeholder="Uses stored ID from Settings">
+                  <div class="form-help">Leave empty to use the stored Application ID from Settings.</div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="testDetails">Details</label>
+                  <input class="form-input" type="text" id="testDetails" placeholder="Testing Rich Presence" value="Testing Rich Presence">
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="testState">State</label>
+                  <input class="form-input" type="text" id="testState" placeholder="Desktop App" value="Desktop App">
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="testLargeImageKey">Large Image Key</label>
+                  <input class="form-input" type="text" id="testLargeImageKey" placeholder="default" value="default">
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="testLargeImageText">Large Image Text</label>
+                  <input class="form-input" type="text" id="testLargeImageText" placeholder="Discord Rich Presence" value="Discord Rich Presence">
+                </div>
+
+                <div class="btn-group">
+                  <button type="submit" class="btn btn-primary">Set Activity</button>
+                  <button type="button" id="clearTestActivityBtn" class="btn btn-secondary">Clear</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Info</h3>
+            </div>
+            <div class="card-body">
+              <p style="margin-bottom: 8px;">Use this to test Discord Rich Presence manually.</p>
+              <p style="margin-bottom: 8px;">Make sure the Discord Desktop app is running.</p>
+              <p style="color: #71717a; font-size: 12px;">If you leave the Application ID empty, the stored ID from Settings will be used automatically.</p>
+            </div>
+          </div>
         </div>
 
         <!-- Settings View -->
-        <div id="settingsView" class="view">
-          <section class="card">
-            <h2>Discord Application Settings</h2>
-            <div class="info-box">
-              <p>Configure your global Discord Application ID. This will be used as the default for all Rich Presence activities when no specific ID is provided by the browser extension.</p>
-              <p><strong>Security:</strong> The key is encrypted and stored securely on your local machine.</p>
+        <div id="settingsView" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h3>Discord Application</h3>
             </div>
-            
-            <form id="settingsForm" class="form">
-              <div class="form-group">
-                <label for="globalClientId">Discord Application ID</label>
-                <div class="input-with-toggle">
-                  <input type="password" id="globalClientId" placeholder="1234567890123456789" autocomplete="new-password">
-                  <button type="button" id="toggleClientIdVisibility" class="input-toggle-btn" title="Show/Hide Client ID" aria-label="Show/Hide Client ID">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                      <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
-                  </button>
+            <div class="card-body">
+              <p style="margin-bottom: 16px; color: #a1a1aa; font-size: 13px;">
+                Configure your global Discord Application ID. This ID is used as the default for all activities.
+              </p>
+              
+              <form id="settingsForm">
+                <div class="form-group">
+                  <label class="form-label" for="globalClientId">Application ID</label>
+                  <input class="form-input" type="text" id="globalClientId" placeholder="1234567890123456789">
+                  <div class="form-help">Get this from <a href="https://discord.com/developers/applications" target="_blank" style="color: #3b82f6;">discord.com/developers/applications</a></div>
                 </div>
-                <small>Create an application at <a href="https://discord.com/developers/applications" target="_blank">discord.com/developers/applications</a></small>
-              </div>
 
-              <div class="button-group">
-                <button type="submit" class="btn btn-primary">Save Settings</button>
-                <button type="button" id="clearStoredKeyBtn" class="btn btn-danger">Clear Stored Key</button>
-              </div>
-            </form>
-
-            <div id="settingsStatus" class="settings-status hidden"></div>
-          </section>
-
-          <section class="card">
-            <h3>Application Settings</h3>
-            <form id="appSettingsForm" class="form">
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="quitOnClose">
-                  <span>Quit application when closing</span>
-                </label>
-                <small>When disabled, the application will only minimize and continue running in the system tray (hidden icons).</small>
-              </div>
-
-              <button type="submit" class="btn btn-primary">Save Settings</button>
-            </form>
-          </section>
-
-          <section class="card">
-            <h3>Startup</h3>
-            <form id="autostartForm" class="form">
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="autostartToggle">
-                  <span>Start with system</span>
-                </label>
-                <small>Automatically launch the app when you log in to your computer.</small>
-              </div>
-
-              <div id="autostartStatus" class="settings-status hidden"></div>
-            </form>
-          </section>
-
-          <section class="card">
-            <h3>Storage Information</h3>
-            <div class="info-box">
-              <div id="storageInfo">
-                <div class="info-row">
-                  <span class="label">Encryption Available:</span>
-                  <span id="encryptionStatus" class="value">Checking...</span>
+                <div class="btn-group">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                  <button type="button" id="clearStoredKeyBtn" class="btn btn-danger">Clear</button>
                 </div>
-                <div class="info-row">
-                  <span class="label">Storage Location:</span>
-                  <span id="storageLocation" class="value">Loading...</span>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Application Behavior</h3>
+            </div>
+            <div class="card-body">
+              <form id="appSettingsForm">
+                <div class="form-group">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="quitOnClose">
+                    <span style="font-size: 14px; font-weight: 400;">Quit when closing window</span>
+                  </label>
+                  <div class="form-help">When disabled, the app minimizes to system tray instead of quitting.</div>
                 </div>
-                <div class="info-row">
-                  <span class="label">Current Status:</span>
-                  <span id="currentKeyStatus" class="value">No key stored</span>
+                <button type="submit" class="btn btn-secondary">Save</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Autostart</h3>
+            </div>
+            <div class="card-body">
+              <form id="autostartForm">
+                <div class="form-group">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="autostartToggle">
+                    <span style="font-size: 14px; font-weight: 400;">Start with system</span>
+                  </label>
+                  <div class="form-help">Launch the app automatically when you log in.</div>
                 </div>
+                <div id="autostartStatus" class="hidden"></div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Storage Info</h3>
+            </div>
+            <div class="card-body">
+              <div class="info-row">
+                <span class="info-label">Encryption</span>
+                <span id="encryptionStatus" class="info-value">Checking...</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Location</span>
+                <span id="storageLocation" class="info-value" style="font-size: 11px; word-break: break-all;">Loading...</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Status</span>
+                <span id="currentKeyStatus" class="info-value">No key stored</span>
               </div>
             </div>
-          </section>
+          </div>
         </div>
-      </main>
-    </div>
-
-    <!-- Status Bar -->
-    <footer class="status-bar">
-      <div class="status-bar-left">
-        <span id="statusMessage">Ready</span>
       </div>
-      <div class="status-bar-right">
-        <span id="logCount">0 logs</span>
-      </div>
-    </footer>
+    </main>
   </div>
 
   <script src="renderer.js"></script>
