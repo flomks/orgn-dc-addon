@@ -1,97 +1,97 @@
-# ORGN Discord Bridge - Desktop App starten
+# ORGN Discord Bridge - Starting the Desktop App
 
-Es gibt mehrere Möglichkeiten, die Desktop App zu starten:
+There are several ways to start the desktop app:
 
-## Option 1: Start-Skripte (Empfohlen für Entwicklung)
+## Option 1: Start Scripts (Recommended for Development)
 
 ### Windows
-Doppelklick auf:
+Double-click on:
 ```
 start-app.bat
 ```
 
 ### macOS / Linux
-Im Terminal ausführen:
+Execute in terminal:
 ```bash
 ./start-app.sh
 ```
 
-Oder doppelklicken (wenn als ausführbar markiert).
+Or double-click (if marked as executable).
 
-## Option 2: NPM Befehl
+## Option 2: NPM Command
 
-Im Terminal:
+In terminal:
 ```bash
 npm run app
 ```
 
-## Option 3: Desktop-Verknüpfung erstellen (Windows)
+## Option 3: Create Desktop Shortcut (Windows)
 
-1. Doppelklick auf `create-desktop-shortcut.bat`
-2. Eine Verknüpfung "ORGN Discord Bridge" wird auf deinem Desktop erstellt
-3. Ab jetzt kannst du die App über die Desktop-Verknüpfung starten
+1. Double-click on `create-desktop-shortcut.bat`
+2. A shortcut "ORGN Discord Bridge" will be created on your desktop
+3. From now on you can start the app via the desktop shortcut
 
-**Hinweis:** Dies erstellt nur eine Verknüpfung zur Development-Version!
+**Note:** This only creates a shortcut to the development version!
 
-## Für Autostart: Installierbare Version erstellen
+## For Autostart: Create Installable Version
 
-Die Autostart-Funktion funktioniert nur in der installierten Version:
+The autostart function only works in the installed version:
 
-### Windows (Installer erstellen)
+### Windows (Create Installer)
 ```bash
 npm run build:win
 ```
-Ausgabe: `dist/ORGN Discord Bridge Setup.exe`
+Output: `dist/ORGN Discord Bridge Setup.exe`
 
-Nach der Installation:
-- App erscheint im Startmenü
-- Autostart kann in den Settings aktiviert werden
-- App läuft als normale Windows-Anwendung
+After installation:
+- App appears in Start Menu
+- Autostart can be enabled in Settings
+- App runs as normal Windows application
 
-### macOS (DMG erstellen)
+### macOS (Create DMG)
 ```bash
 npm run build:mac
 ```
-Ausgabe: `dist/ORGN Discord Bridge.dmg`
+Output: `dist/ORGN Discord Bridge.dmg`
 
-### Linux (AppImage/DEB erstellen)
+### Linux (Create AppImage/DEB)
 ```bash
 npm run build:linux
 ```
-Ausgabe: 
+Output: 
 - `dist/ORGN Discord Bridge.AppImage`
 - `dist/orgn-discord-bridge.deb`
 
-## Unterschied: Development vs. Production
+## Difference: Development vs. Production
 
-| Feature | Development (`start-app.bat`) | Production (nach Build) |
+| Feature | Development (`start-app.bat`) | Production (after build) |
 |---------|-------------------------------|-------------------------|
-| Starten | Manuell über Skript/npm | Über Startmenü/Desktop |
-| Autostart | ❌ Deaktiviert | ✅ Funktioniert |
-| Updates | Sofort nach Code-Änderung | Muss neu gebaut werden |
-| Performance | Langsamer (Dev-Tools aktiv) | Schneller (optimiert) |
-| Verwendung | Entwicklung & Testing | Tägliche Nutzung |
+| Starting | Manually via script/npm | Via Start Menu/Desktop |
+| Autostart | ❌ Disabled | ✅ Works |
+| Updates | Immediately after code change | Must be rebuilt |
+| Performance | Slower (dev tools active) | Faster (optimized) |
+| Usage | Development & Testing | Daily use |
 
 ## Troubleshooting
 
-### "node_modules nicht gefunden"
+### "node_modules not found"
 ```bash
 npm install
 ```
 
-### "Electron nicht installiert"
+### "Electron not installed"
 ```bash
 npm install electron --save-dev
 ```
 
-### App startet nicht
-1. Terminal öffnen
-2. Ausführen: `npm run app`
-3. Fehlermeldungen beachten
+### App won't start
+1. Open terminal
+2. Execute: `npm run app`
+3. Pay attention to error messages
 
-### Desktop-Verknüpfung funktioniert nicht (Windows)
-Manuelle Verknüpfung erstellen:
-1. Rechtsklick auf Desktop → Neu → Verknüpfung
-2. Durchsuchen → `start-app.bat` auswählen
+### Desktop shortcut doesn't work (Windows)
+Create manual shortcut:
+1. Right-click on desktop → New → Shortcut
+2. Browse → select `start-app.bat`
 3. Name: "ORGN Discord Bridge"
-4. Fertigstellen
+4. Finish
