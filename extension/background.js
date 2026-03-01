@@ -544,6 +544,24 @@ async function handlePopupMessage(message) {
       }
     }
 
+    case 'injectContentScript': {
+      // Popup cannot call chrome.scripting directly (MV3 restriction).
+      // This handler lets the popup ask the background to inject it.
+      const targetTabId = message.tabId;
+      if (!targetTabId) {
+        return { success: false, error: 'No tabId provided' };
+      }
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: targetTabId },
+          files: ['content-script.js']
+        });
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    }
+
     case 'resetSession': {
       const newStart = Date.now();
       lastOrgnState = null;

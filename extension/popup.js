@@ -325,27 +325,26 @@ async function loadDiagnostics() {
   }
   debugLog.push('Step 1: FAIL -- ' + (direct.error || 'no state in response'));
 
-  // 3. Try programmatic injection
-  debugLog.push('Step 2: scripting.executeScript...');
-  let injectError = null;
+  // 3. Ask background to inject content script (popup cannot use chrome.scripting)
+  debugLog.push('Step 2: asking background to inject content script...');
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['content-script.js']
-    });
-    debugLog.push('Step 2: executeScript OK, waiting 800ms...');
-    await sleep(800);
+    const injectResult = await sendMessage({ type: 'injectContentScript', tabId: tab.id }, 5000);
+    if (injectResult?.success) {
+      debugLog.push('Step 2: injection OK, waiting 800ms...');
+      await sleep(800);
 
-    const retry = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
-    if (retry.response?.state) {
-      debugLog.push('Step 2: OK -- got state after injection');
-      showDiagSuccess(content, rawContent, exportBtn, retry.response.state, false, debugLog);
-      return;
+      const retry = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
+      if (retry.response?.state) {
+        debugLog.push('Step 2: OK -- got state after injection');
+        showDiagSuccess(content, rawContent, exportBtn, retry.response.state, false, debugLog);
+        return;
+      }
+      debugLog.push('Step 2: sendMessage after inject FAIL -- ' + (retry.error || 'no state'));
+    } else {
+      debugLog.push('Step 2: injection FAIL -- ' + (injectResult?.error || 'unknown'));
     }
-    debugLog.push('Step 2: sendMessage after inject FAIL -- ' + (retry.error || 'no state'));
   } catch (e) {
-    injectError = e.message;
-    debugLog.push('Step 2: executeScript FAIL -- ' + e.message);
+    debugLog.push('Step 2: injection FAIL -- ' + e.message);
   }
 
   // 4. Try cached state from storage
