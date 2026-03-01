@@ -566,7 +566,8 @@ async function handlePopupMessage(message) {
       return { success: true };
 
     default:
-      return { error: 'Unknown message type' };
+      console.warn('[ORGN] Unknown popup message type:', message.type);
+      return { error: 'unknown_message_type', message: 'Unrecognized: ' + message.type };
   }
 }
 
