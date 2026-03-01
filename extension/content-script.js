@@ -5,9 +5,11 @@
 (function () {
   'use strict';
 
-  // Prevent double-injection (manifest + programmatic scripting.executeScript)
-  if (window.__orgnBridgeContentScriptLoaded) return;
-  window.__orgnBridgeContentScriptLoaded = true;
+  // Version-gated guard: prevents double-injection within the same version,
+  // but allows re-injection after extension updates (new SCRIPT_VERSION).
+  const SCRIPT_VERSION = 3;
+  if (window.__orgnBridgeContentScriptVersion === SCRIPT_VERSION) return;
+  window.__orgnBridgeContentScriptVersion = SCRIPT_VERSION;
 
   const EXTRACT_INTERVAL_MS = 3000; // Re-extract every 3 seconds
   const DEBUG_MODE = true; // Enable console logging for diagnostics
