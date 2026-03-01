@@ -236,36 +236,50 @@ async function loadDiagnostics() {
   content.innerHTML = '<div class="diag-error">Loading...</div>';
 
   try {
-    // Request diagnostics from background (which asks content script)
-    const result = await sendMessage({ type: 'requestContentScriptDiagnostics' }, 5000);
+    // Request diagnostics from background (which handles injection + fallbacks)
+    const result = await sendMessage({ type: 'requestContentScriptDiagnostics' }, 10000);
 
-    if (result?.error) {
-      // Fallback: try to get stored state from background
-      const stored = await sendMessage({ type: 'getContentScriptState' }, 3000);
-      if (stored?.state) {
-        renderDiagnostics(content, stored.state);
-      } else {
-        content.innerHTML = '<div class="diag-error">' +
-          'Content script not active on this tab.<br>' +
-          'Navigate to an ORGN CDE page to see diagnostics.' +
-          '</div>';
-      }
+    // Success: we got state data
+    if (result?.state) {
+      const staleNote = result.fromStorage
+        ? '<div class="diag-timestamp" style="color:#f59e0b;">Showing cached data (content script could not be reached live)</div>'
+        : '';
+      renderDiagnostics(content, result.state, staleNote);
       return;
     }
 
-    if (result?.state) {
-      renderDiagnostics(content, result.state);
-    } else {
-      content.innerHTML = '<div class="diag-error">No state data available</div>';
+    // Error with structured message from background
+    if (result?.error) {
+      let errorHtml = '';
+      switch (result.error) {
+        case 'not_on_orgn':
+          errorHtml = 'Current tab is not on an ORGN domain.<br>' +
+            'Open <strong>cde.orgn.com</strong> and try again.';
+          break;
+        case 'injection_failed':
+          errorHtml = 'Content script could not connect.<br>' +
+            'Try <strong>reloading the ORGN page</strong>, then refresh here.';
+          break;
+        default:
+          errorHtml = result.message || result.error || 'Unknown error';
+      }
+      content.innerHTML = '<div class="diag-error">' + errorHtml + '</div>';
+      return;
     }
+
+    content.innerHTML = '<div class="diag-error">No state data received</div>';
   } catch (e) {
-    // Last resort: read from storage
+    // Timeout or background not responding -- try reading storage directly
     try {
       const stored = await chrome.storage.local.get(['orgnContentScriptState']);
       if (stored.orgnContentScriptState) {
-        renderDiagnostics(content, stored.orgnContentScriptState);
+        const note = '<div class="diag-timestamp" style="color:#f59e0b;">Background unreachable. Showing last cached data.</div>';
+        renderDiagnostics(content, stored.orgnContentScriptState, note);
       } else {
-        content.innerHTML = '<div class="diag-error">Unable to load diagnostics: ' + e.message + '</div>';
+        content.innerHTML = '<div class="diag-error">' +
+          'Could not reach background service worker.<br>' +
+          'Try closing and reopening the popup.' +
+          '</div>';
       }
     } catch (e2) {
       content.innerHTML = '<div class="diag-error">Diagnostics unavailable</div>';
@@ -273,8 +287,8 @@ async function loadDiagnostics() {
   }
 }
 
-function renderDiagnostics(container, state) {
-  let html = '';
+function renderDiagnostics(container, state, noteHtml) {
+  let html = noteHtml || '';
 
   // Computed (most important - what Discord will show)
   if (state.computed) {

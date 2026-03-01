@@ -13,10 +13,12 @@
     "storage",
     "tabs",
     "activeTab",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
-    "*://*.orgn.com/*"
+    "*://*.orgn.com/*",
+    "*://orgn.com/*"
   ],
   "background": {
     "scripts": ["background.js"]
@@ -38,9 +40,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.orgn.com/*"],
+      "matches": ["*://*.orgn.com/*", "*://orgn.com/*"],
       "js": ["content-script.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

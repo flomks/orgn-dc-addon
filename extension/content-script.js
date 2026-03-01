@@ -5,6 +5,10 @@
 (function () {
   'use strict';
 
+  // Prevent double-injection (manifest + programmatic scripting.executeScript)
+  if (window.__orgnBridgeContentScriptLoaded) return;
+  window.__orgnBridgeContentScriptLoaded = true;
+
   const EXTRACT_INTERVAL_MS = 3000; // Re-extract every 3 seconds
   const DEBUG_MODE = true; // Enable console logging for diagnostics
 
