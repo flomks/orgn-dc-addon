@@ -5,6 +5,11 @@ const WS_URL = 'ws://127.0.0.1:7890';
 const ORGN_DOMAINS = ['orgn.com', 'cde.orgn.com'];
 const KEEPALIVE_ALARM = 'keepalive';
 
+// If the gap between now and the last heartbeat exceeds this threshold (ms),
+// we assume the browser / app was closed and the session timer should reset.
+// The keepalive alarm fires every ~25 s, so 2 minutes gives plenty of margin.
+const STALE_SESSION_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
 let ws = null;
 let desktopAppConnected = false;
 let lastOrgnState = null;
@@ -21,6 +26,8 @@ chrome.alarms.create(KEEPALIVE_ALARM, {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
+  // Record a heartbeat so we can detect stale sessions after browser restart
+  await chrome.storage.local.set({ orgnLastHeartbeat: Date.now() });
   await ensureConnected();
   await checkActiveTab();
 });
@@ -248,7 +255,8 @@ async function checkOrgnTabsExist() {
     if (!hasOrgn) {
       lastOrgnState = null;
       await chrome.storage.local.remove([
-        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState'
+        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState',
+        'orgnLastHeartbeat'
       ]);
       send({ type: 'clearActivity' });
     }
@@ -449,7 +457,8 @@ async function handlePopupMessage(message) {
     case 'clearActivity':
       lastOrgnState = null;
       await chrome.storage.local.remove([
-        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState'
+        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState',
+        'orgnLastHeartbeat'
       ]);
       send({ type: 'clearActivity' });
       return { success: true };
@@ -519,6 +528,50 @@ async function setBadge(text, color) {
   } catch (e) { /* ignore */ }
 }
 
+// ── Stale Session Detection ──────────────────────────────────────
+// On service-worker (re)start, check if the previous session's heartbeat
+// is too old.  If the gap exceeds STALE_SESSION_THRESHOLD_MS the browser
+// (or extension) was likely fully closed, so we reset the timer.
+
+async function clearStaleSession() {
+  try {
+    const stored = await chrome.storage.local.get([
+      'orgnLastHeartbeat',
+      'orgnSessionStart'
+    ]);
+
+    // Nothing to reset if there is no active session
+    if (!stored.orgnSessionStart) return;
+
+    const now = Date.now();
+    const lastHeartbeat = stored.orgnLastHeartbeat || 0;
+    const gap = now - lastHeartbeat;
+
+    if (lastHeartbeat > 0 && gap > STALE_SESSION_THRESHOLD_MS) {
+      // Session is stale – clear it so the timer starts fresh
+      lastOrgnState = null;
+      await chrome.storage.local.remove([
+        'orgnSessionStart',
+        'orgnLastDetails',
+        'orgnLastState',
+        'orgnLastHeartbeat'
+      ]);
+      console.log(
+        '[ORGN] Stale session detected (gap: ' +
+          Math.round(gap / 1000) +
+          ' s). Timer reset.'
+      );
+    }
+
+    // Write a fresh heartbeat so the threshold starts counting from now
+    await chrome.storage.local.set({ orgnLastHeartbeat: now });
+  } catch (e) {
+    console.warn('[ORGN] Error checking stale session:', e);
+  }
+}
+
 // ── Startup ──────────────────────────────────────────────────────
 
-ensureConnected().then(() => checkActiveTab());
+clearStaleSession()
+  .then(() => ensureConnected())
+  .then(() => checkActiveTab());
