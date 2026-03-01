@@ -258,23 +258,23 @@ function initDiagnostics() {
 
 /**
  * Send a message directly to the content script on the active tab.
- * Returns null if the content script is not reachable.
+ * Returns { response, error } -- error is a string if it failed.
  */
 function sendToContentScript(tabId, message, timeout = 3000) {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), timeout);
+    const timer = setTimeout(() => resolve({ response: null, error: 'timeout (' + timeout + 'ms)' }), timeout);
     try {
       chrome.tabs.sendMessage(tabId, message, (response) => {
         clearTimeout(timer);
         if (chrome.runtime.lastError) {
-          resolve(null);
+          resolve({ response: null, error: chrome.runtime.lastError.message });
         } else {
-          resolve(response);
+          resolve({ response, error: null });
         }
       });
     } catch (e) {
       clearTimeout(timer);
-      resolve(null);
+      resolve({ response: null, error: 'exception: ' + e.message });
     }
   });
 }
@@ -290,74 +290,122 @@ async function loadDiagnostics() {
   lastDiagState = null;
   if (exportBtn) exportBtn.disabled = true;
 
+  // Collect debug log for every step
+  const debugLog = [];
+
   // 1. Get the active tab
   let tab = null;
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     tab = activeTab;
-  } catch (e) { /* ignore */ }
+    debugLog.push('Tab: id=' + (tab?.id || 'none') + ' url=' + (tab?.url || 'undefined'));
+  } catch (e) {
+    debugLog.push('Tab query failed: ' + e.message);
+  }
 
   if (!tab?.id) {
-    content.innerHTML = '<div class="diag-error">No active tab found.</div>';
+    showDiagError(content, rawContent, 'No active tab found.', debugLog);
     return;
   }
 
-  // Check if we are on an ORGN domain
+  // Parse tab URL info (no domain gate -- diagnostics work everywhere)
+  let tabUrl = tab.url || '';
   let hostname = '';
-  try { hostname = new URL(tab.url || '').hostname; } catch (e) { /* ignore */ }
-  const isOrgn = ORGN_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+  try { hostname = new URL(tabUrl).hostname; } catch (e) { /* ignore */ }
+  debugLog.push('Hostname: ' + (hostname || '(empty)'));
 
-  if (!isOrgn) {
-    content.innerHTML = '<div class="diag-error">' +
-      'Current tab is not on an ORGN domain.<br>' +
-      '<span style="color:#52525b;">' + escapeHtml(hostname || 'unknown') + '</span>' +
-      '</div>';
+  // 2. Try to reach an already-running content script
+  debugLog.push('Step 1: tabs.sendMessage getDiagnostics...');
+  const direct = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
+
+  if (direct.response?.state) {
+    debugLog.push('Step 1: OK -- got live state');
+    showDiagSuccess(content, rawContent, exportBtn, direct.response.state, false, debugLog);
     return;
   }
+  debugLog.push('Step 1: FAIL -- ' + (direct.error || 'no state in response'));
 
-  // 2. Try to reach the content script directly
-  let result = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
+  // 3. Try programmatic injection
+  debugLog.push('Step 2: scripting.executeScript...');
+  let injectError = null;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content-script.js']
+    });
+    debugLog.push('Step 2: executeScript OK, waiting 800ms...');
+    await sleep(800);
 
-  // 3. If not reachable, inject it and retry
-  if (!result?.state) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content-script.js']
-      });
-      await sleep(600);
-      result = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
-    } catch (injectErr) {
-      // injection failed (e.g. chrome:// page)
+    const retry = await sendToContentScript(tab.id, { type: 'getDiagnostics' });
+    if (retry.response?.state) {
+      debugLog.push('Step 2: OK -- got state after injection');
+      showDiagSuccess(content, rawContent, exportBtn, retry.response.state, false, debugLog);
+      return;
     }
+    debugLog.push('Step 2: sendMessage after inject FAIL -- ' + (retry.error || 'no state'));
+  } catch (e) {
+    injectError = e.message;
+    debugLog.push('Step 2: executeScript FAIL -- ' + e.message);
   }
 
-  // 4. If still nothing, try cached state from storage
-  if (!result?.state) {
-    try {
-      const stored = await chrome.storage.local.get(['orgnContentScriptState']);
-      if (stored.orgnContentScriptState) {
-        result = { state: stored.orgnContentScriptState, fromStorage: true };
-      }
-    } catch (e) { /* ignore */ }
+  // 4. Try cached state from storage
+  debugLog.push('Step 3: reading cached state from storage...');
+  try {
+    const stored = await chrome.storage.local.get(['orgnContentScriptState']);
+    if (stored.orgnContentScriptState) {
+      debugLog.push('Step 3: OK -- found cached state');
+      showDiagSuccess(content, rawContent, exportBtn, stored.orgnContentScriptState, true, debugLog);
+      return;
+    }
+    debugLog.push('Step 3: no cached state');
+  } catch (e) {
+    debugLog.push('Step 3: storage error -- ' + e.message);
   }
 
-  // 5. Render or show error
-  if (result?.state) {
-    lastDiagState = result.state;
-    if (exportBtn) exportBtn.disabled = false;
-    const staleNote = result.fromStorage
-      ? '<div class="diag-timestamp" style="color:#f59e0b;">Showing cached data (content script not reachable live)</div>'
-      : '';
-    renderDiagnostics(content, result.state, staleNote);
-    renderRawData(rawContent, result.state);
-  } else {
-    content.innerHTML = '<div class="diag-error">' +
-      'Content script could not be reached.<br>' +
-      'Try <strong>reloading the page</strong>, then click Refresh.' +
-      '</div>';
-    if (rawContent) rawContent.querySelector('.diag-raw-pre').textContent = 'No data available';
+  // 5. All methods failed -- show detailed debug info
+  debugLog.push('ALL METHODS FAILED');
+  showDiagError(content, rawContent,
+    'Content script could not be reached.<br>' +
+    'Try <strong>reloading the ORGN page</strong>, then click Refresh.',
+    debugLog
+  );
+}
+
+function showDiagSuccess(content, rawContent, exportBtn, state, fromStorage, debugLog) {
+  lastDiagState = state;
+  if (exportBtn) exportBtn.disabled = false;
+
+  let noteHtml = '';
+  if (fromStorage) {
+    noteHtml += '<div class="diag-timestamp" style="color:#f59e0b;">Showing cached data (content script not reachable live)</div>';
   }
+  // Always append debug trace
+  noteHtml += renderDebugTrace(debugLog);
+
+  renderDiagnostics(content, state, noteHtml);
+  renderRawData(rawContent, state);
+}
+
+function showDiagError(content, rawContent, message, debugLog) {
+  const debugHtml = renderDebugTrace(debugLog);
+  content.innerHTML = '<div class="diag-error">' + message + '</div>' + debugHtml;
+  if (rawContent) {
+    rawContent.querySelector('.diag-raw-pre').textContent =
+      'No state data available.\n\n--- Debug Log ---\n' + debugLog.join('\n');
+  }
+}
+
+function renderDebugTrace(debugLog) {
+  if (!debugLog || debugLog.length === 0) return '';
+  return '<div class="diag-section">' +
+    '<div class="diag-section-header">Debug Trace</div>' +
+    debugLog.map(line => {
+      const isErr = /FAIL|error|failed/i.test(line);
+      const isOk = /\bOK\b/.test(line);
+      const color = isErr ? '#ef4444' : isOk ? '#22c55e' : '#71717a';
+      return '<div class="diag-row"><span class="diag-val" style="color:' + color + ';max-width:100%;text-align:left;white-space:normal;word-break:break-all;">' + escapeHtml(line) + '</span></div>';
+    }).join('') +
+    '</div>';
 }
 
 function exportStateAsJson() {
