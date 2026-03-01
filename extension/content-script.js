@@ -121,25 +121,28 @@
   function extractTitleInfo() {
     const rawTitle = document.title;
 
-    // Remove common suffixes like " · Orgn CDE", " | Orgn CDE"
+    // Remove common suffixes like " · Orgn CDE", " | Orgn CDE", " - Orgn CDE"
+    // Use \s+ (require space) before dash to avoid matching hyphens inside names
     const cleanTitle = rawTitle
       .replace(/\s*[·|]\s*Orgn\s*CDE\s*$/i, '')
-      .replace(/\s*[-–]\s*Orgn\s*CDE\s*$/i, '')
+      .replace(/\s+[-–]\s+Orgn\s*CDE\s*$/i, '')
       .trim();
 
     // Try to parse structured titles
+    // IMPORTANT: Only split on " - " or " – " (with spaces), NOT bare hyphens.
+    // Bare hyphens are part of names like "orgn-dc-addon".
     const parts = {};
 
-    // Pattern: "filename - Trial · Orgn CDE"
-    const trialMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*Trial$/i);
+    // Pattern: "trial name - Trial · Orgn CDE"  (space-dash-space before "Trial")
+    const trialMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+Trial$/i);
     if (trialMatch) {
       parts.trialName = trialMatch[1].trim();
       parts.pageType = 'trial';
     }
 
-    // Pattern: "projectname · Orgn CDE" (already cleaned)
-    // Pattern: "section - subsection"
-    const sepMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*(.+)$/);
+    // Pattern: "section - subsection"  (space-dash-space separator)
+    // This should NOT split "orgn-dc-addon" (no spaces around the hyphens)
+    const sepMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+(.+)$/);
     if (sepMatch && !parts.pageType) {
       parts.primary = sepMatch[1].trim();
       parts.secondary = sepMatch[2].trim();

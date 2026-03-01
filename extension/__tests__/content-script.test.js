@@ -91,18 +91,19 @@ function parseRouteFromPath(pathname) {
 function parseTitleInfo(rawTitle) {
   const cleanTitle = rawTitle
     .replace(/\s*[·|]\s*Orgn\s*CDE\s*$/i, '')
-    .replace(/\s*[-–]\s*Orgn\s*CDE\s*$/i, '')
+    .replace(/\s+[-–]\s+Orgn\s*CDE\s*$/i, '')
     .trim();
 
   const parts = {};
 
-  const trialMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*Trial$/i);
+  // Only split on " - " or " – " (with spaces), not bare hyphens in names
+  const trialMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+Trial$/i);
   if (trialMatch) {
     parts.trialName = trialMatch[1].trim();
     parts.pageType = 'trial';
   }
 
-  const sepMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*(.+)$/);
+  const sepMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+(.+)$/);
   if (sepMatch && !parts.pageType) {
     parts.primary = sepMatch[1].trim();
     parts.secondary = sepMatch[2].trim();
@@ -272,14 +273,24 @@ describe('Content Script - Title Parsing', () => {
     expect(result.parts.pageType).toBe('trial');
   });
 
-  it('should parse project title with separator', () => {
-    // Note: the regex uses a non-greedy match, so "my-project - Dashboard"
-    // splits at the first " - " which means "my" becomes primary
-    // This tests the actual behavior - for hyphenated names, the separator
-    // regex matches at the first dash. This is expected with the current title format.
+  it('should parse project title with separator (spaces around dash)', () => {
     const result = parseTitleInfo('myproject - Dashboard · Orgn CDE');
     expect(result.parts.primary).toBe('myproject');
     expect(result.parts.secondary).toBe('Dashboard');
+  });
+
+  it('should NOT split hyphenated names like orgn-dc-addon', () => {
+    const result = parseTitleInfo('orgn-dc-addon · Orgn CDE');
+    expect(result.clean).toBe('orgn-dc-addon');
+    // No primary/secondary because there's no " - " with spaces
+    expect(result.parts.primary).toBeUndefined();
+    expect(result.parts.secondary).toBeUndefined();
+  });
+
+  it('should NOT split multi-hyphen names', () => {
+    const result = parseTitleInfo('my-cool-project-name · Orgn CDE');
+    expect(result.clean).toBe('my-cool-project-name');
+    expect(result.parts.primary).toBeUndefined();
   });
 
   it('should handle simple title', () => {
