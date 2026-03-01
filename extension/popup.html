@@ -404,21 +404,45 @@
     .diag-val.false { color: #ef4444; }
     .diag-val.null { color: #71717a; font-style: italic; }
 
-    .diag-refresh {
-      display: block;
-      width: 100%;
-      padding: 8px;
+    .diag-btn-row {
+      display: flex;
+      border-bottom: 1px solid #1e1e22;
+    }
+    .diag-btn-row button {
+      flex: 1;
+      padding: 9px 8px;
       background: #18181b;
       border: none;
-      color: #a78bfa;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       font-family: 'Geist', sans-serif;
+      transition: background 0.15s, color 0.15s;
     }
-    .diag-refresh:hover {
+    .diag-btn-row button + button {
+      border-left: 1px solid #1e1e22;
+    }
+    .diag-btn-refresh {
+      color: #a78bfa;
+    }
+    .diag-btn-refresh:hover {
       background: #27272a;
       color: #c4b5fd;
+    }
+    .diag-btn-export {
+      color: #22c55e;
+    }
+    .diag-btn-export:hover {
+      background: #27272a;
+      color: #4ade80;
+    }
+    .diag-btn-export:disabled {
+      color: #52525b;
+      cursor: not-allowed;
+    }
+    .diag-btn-export:disabled:hover {
+      background: #18181b;
+      color: #52525b;
     }
 
     .diag-error {
@@ -534,9 +558,12 @@
       <span class="diag-toggle-arrow" id="diagArrow">&#9660;</span>
     </div>
     <div id="diagPanel" class="diag-panel hidden">
-      <button class="diag-refresh" id="diagRefresh">Refresh Diagnostics</button>
+      <div class="diag-btn-row">
+        <button class="diag-btn-refresh" id="diagRefresh">Refresh</button>
+        <button class="diag-btn-export" id="diagExport" disabled>Export JSON</button>
+      </div>
       <div id="diagContent">
-        <div class="diag-error">Click refresh to load diagnostics</div>
+        <div class="diag-error">Click Refresh to load state data</div>
       </div>
     </div>
   </div>
