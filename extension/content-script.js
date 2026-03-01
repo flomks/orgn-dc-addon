@@ -82,6 +82,25 @@
       routeInfo.isSettings = true;
     }
 
+    // New project page
+    if (segments.includes('new')) {
+      routeInfo.isNewProject = true;
+    }
+
+    // Chat page
+    if (segments.includes('chat')) {
+      routeInfo.isChat = true;
+    }
+
+    // Query parameter based navigation (ORGN CDE uses ?tab=...&subtab=...)
+    // These indicate which sub-view is active within a page
+    if (searchParams.tab) {
+      routeInfo.activeTab = searchParams.tab;
+    }
+    if (searchParams.subtab) {
+      routeInfo.activeSubtab = searchParams.subtab;
+    }
+
     return {
       url,
       hostname,
@@ -625,16 +644,27 @@
       }
     }
 
-    // Determine current view from URL and DOM context
+    // Determine current view from URL, query params, and DOM context
     const pathname = window.location.pathname;
+    const qTab = new URLSearchParams(window.location.search).get('tab');
+
     if (/\/editor\b/i.test(pathname) || orgn.isIDE) {
       orgn.currentView = 'editor';
     } else if (/\/projects\/?$/i.test(pathname)) {
       orgn.currentView = 'projects-list';
     } else if (/\/projects\/[^/]+\/?$/i.test(pathname)) {
-      orgn.currentView = 'project-detail';
+      // Project detail page -- refine by query param ?tab=...
+      if (qTab) {
+        orgn.currentView = 'project-' + qTab;  // e.g. 'project-tasks', 'project-context'
+      } else {
+        orgn.currentView = 'project-detail';
+      }
     } else if (/\/trials?\//i.test(pathname)) {
       orgn.currentView = 'trial';
+    } else if (/\/new\/?$/i.test(pathname)) {
+      orgn.currentView = 'new-project';
+    } else if (/\/chat/i.test(pathname)) {
+      orgn.currentView = 'chat';
     } else if (/\/settings/i.test(pathname)) {
       orgn.currentView = 'settings';
     } else if (pathname === '/' || pathname === '') {
@@ -642,6 +672,10 @@
     } else {
       orgn.currentView = 'other';
     }
+
+    // Store the active tab/subtab for richer context
+    orgn.activeTab = qTab || null;
+    orgn.activeSubtab = new URLSearchParams(window.location.search).get('subtab') || null;
 
     return orgn;
   }
@@ -710,12 +744,32 @@
 
     // ── Compute derived fields ─────────────────────────────────
 
-    // Best guess at project name
+    // Best guess at project name:
+    // 1. ORGN DOM-detected name (most reliable)
+    // 2. Page title clean (e.g. "orgn-dc-addon" from "orgn-dc-addon · Orgn CDE")
+    //    -- but only if we're on a project page and the title is not a generic label
+    // 3. URL slug (only if not a UUID)
+    const urlSlug = state.url.routeInfo.projectSlug || null;
+    const titleClean = state.title.clean || null;
+    const isOnProjectPage = state.orgn.currentView &&
+      state.orgn.currentView.startsWith('project');
+    const isUUID = urlSlug && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlSlug);
+
+    // Title is the real project name if we're on a project page
+    // (e.g. "orgn-dc-addon" from the title, not "7e48b6db-..." from the URL)
+    const titleBasedName = isOnProjectPage && titleClean &&
+      !/^(projects?|dashboard|settings|new|orgn cde)$/i.test(titleClean)
+      ? titleClean : null;
+
     state.computed.projectName =
       state.orgn.projectName ||
-      state.url.routeInfo.projectSlug ||
-      state.title.parts.primary ||
+      titleBasedName ||
+      (isUUID ? null : urlSlug) ||
       null;
+
+    // Active tab/subtab (query parameters)
+    state.computed.activeTab = state.orgn.activeTab || state.url.routeInfo.activeTab || null;
+    state.computed.activeSubtab = state.orgn.activeSubtab || state.url.routeInfo.activeSubtab || null;
 
     // Best guess at current activity
     if (state.editor.hasEditor && state.editor.activeFile) {
@@ -729,6 +783,23 @@
     } else if (state.orgn.currentView === 'editor') {
       state.computed.activity = 'ide';
       state.computed.activityTarget = state.orgn.ideType || 'IDE';
+    } else if (state.computed.activeTab) {
+      // Tab-based navigation within a project page
+      // e.g. ?tab=tasks -> "Viewing Tasks", ?tab=context -> "Viewing Context"
+      const tabLabels = {
+        'tasks': 'Viewing Tasks',
+        'context': 'Viewing Context',
+        'explorer': 'Browsing Files',
+        'features': 'Viewing Features',
+        'security': 'Viewing Security',
+        'integrations': 'Viewing Integrations',
+        'usage': 'Viewing Usage',
+        'settings': 'Project Settings'
+      };
+      const tabLabel = tabLabels[state.computed.activeTab] ||
+        ('Viewing ' + state.computed.activeTab.charAt(0).toUpperCase() + state.computed.activeTab.slice(1));
+      state.computed.activity = 'tab';
+      state.computed.activityTarget = tabLabel;
     } else {
       state.computed.activity = 'browsing';
       state.computed.activityTarget = state.orgn.currentView || 'page';
@@ -756,10 +827,13 @@
     const keyFields = [
       state.title.raw,
       state.url.pathname,
+      state.url.url,  // full URL including query params
       state.computed.activity,
       state.computed.activityTarget,
       state.computed.projectName,
       state.computed.trialName,
+      state.computed.activeTab,
+      state.computed.activeSubtab,
       state.computed.language,
       state.computed.gitBranch
     ];

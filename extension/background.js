@@ -311,12 +311,25 @@ async function updateActivityFromContentScript(state) {
       if (orgn.ideType) {
         details += ' (' + orgn.ideType + ')';
       }
+    } else if (computed.activity === 'tab' && computed.activityTarget) {
+      // Tab-based navigation (e.g. ?tab=tasks -> "Viewing Tasks")
+      details = computed.activityTarget;
     } else {
       // Browsing mode - use current view
       const viewLabels = {
         'dashboard': 'Viewing Dashboard',
         'projects-list': 'Browsing Projects',
         'project-detail': 'Viewing Project',
+        'project-tasks': 'Viewing Tasks',
+        'project-context': 'Viewing Context',
+        'project-explorer': 'Browsing Files',
+        'project-features': 'Viewing Features',
+        'project-security': 'Viewing Security',
+        'project-integrations': 'Viewing Integrations',
+        'project-usage': 'Viewing Usage',
+        'project-settings': 'Project Settings',
+        'new-project': 'Creating Project',
+        'chat': 'In Chat',
         'trial': 'Working on Trial',
         'settings': 'In Settings',
         'editor': 'In Editor',
