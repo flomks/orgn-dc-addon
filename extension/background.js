@@ -299,7 +299,11 @@ async function updateActivityFromContentScript(state) {
     let smallImageText = null;
 
     // Determine primary activity
-    if (computed.activity === 'editing' && computed.activityTarget) {
+    if (computed.activity === 'chat-trial') {
+      // /chat/{trialId} -- show: details = projectName, state = "Trial · <name>"
+      details = computed.projectName || 'ORGN CDE';
+      activityState = 'Trial \u00B7 ' + (computed.activityTarget || computed.trialName || 'Working');
+    } else if (computed.activity === 'editing' && computed.activityTarget) {
       details = 'Editing ' + computed.activityTarget;
       if (computed.language) {
         smallImageText = computed.language;
@@ -330,6 +334,7 @@ async function updateActivityFromContentScript(state) {
         'project-settings': 'Project Settings',
         'new-project': 'Creating Project',
         'chat': 'In Chat',
+        'chat-trial': 'Working on Trial',
         'trial': 'Working on Trial',
         'settings': 'In Settings',
         'editor': 'In Editor',
@@ -339,17 +344,20 @@ async function updateActivityFromContentScript(state) {
     }
 
     // Build state string (project + trial context)
-    const parts = [];
-    if (computed.projectName) {
-      parts.push(computed.projectName);
+    // Skip for chat-trial since we already built both details + state above
+    if (computed.activity !== 'chat-trial') {
+      const parts = [];
+      if (computed.projectName) {
+        parts.push(computed.projectName);
+      }
+      if (computed.trialName && computed.trialName !== computed.projectName) {
+        parts.push(computed.trialName);
+      }
+      if (computed.gitBranch) {
+        parts.push('branch: ' + computed.gitBranch);
+      }
+      activityState = parts.join(' / ') || 'ORGN CDE';
     }
-    if (computed.trialName && computed.trialName !== computed.projectName) {
-      parts.push(computed.trialName);
-    }
-    if (computed.gitBranch) {
-      parts.push('branch: ' + computed.gitBranch);
-    }
-    activityState = parts.join(' / ') || 'ORGN CDE';
 
     // Check if this represents an actual change
     const stateKey = `${details}|${activityState}|${smallImageText || ''}`;

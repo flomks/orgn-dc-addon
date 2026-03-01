@@ -87,9 +87,13 @@
       routeInfo.isNewProject = true;
     }
 
-    // Chat page
-    if (segments.includes('chat')) {
+    // Chat page: /chat/{trialId}
+    const chatIdx = segments.indexOf('chat');
+    if (chatIdx !== -1) {
       routeInfo.isChat = true;
+      if (segments[chatIdx + 1]) {
+        routeInfo.chatTrialId = segments[chatIdx + 1];
+      }
     }
 
     // Query parameter based navigation (ORGN CDE uses ?tab=...&subtab=...)
@@ -663,7 +667,9 @@
       orgn.currentView = 'trial';
     } else if (/\/new\/?$/i.test(pathname)) {
       orgn.currentView = 'new-project';
-    } else if (/\/chat/i.test(pathname)) {
+    } else if (/\/chat\/[^/]+/i.test(pathname)) {
+      orgn.currentView = 'chat-trial';
+    } else if (/\/chat\/?$/i.test(pathname)) {
       orgn.currentView = 'chat';
     } else if (/\/settings/i.test(pathname)) {
       orgn.currentView = 'settings';
@@ -746,25 +752,30 @@
 
     // Best guess at project name:
     // 1. ORGN DOM-detected name (most reliable)
-    // 2. Page title clean (e.g. "orgn-dc-addon" from "orgn-dc-addon · Orgn CDE")
-    //    -- but only if we're on a project page and the title is not a generic label
-    // 3. URL slug (only if not a UUID)
+    // 2. meta description "Project <name> in Orgn CDE" (works on all pages)
+    // 3. Page title clean -- only if on a project page and not a generic label
+    // 4. URL slug (only if not a UUID)
     const urlSlug = state.url.routeInfo.projectSlug || null;
     const titleClean = state.title.clean || null;
-    const isOnProjectPage = state.orgn.currentView &&
-      state.orgn.currentView.startsWith('project');
-    const isUUID = urlSlug && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlSlug);
+    const currentView = state.orgn.currentView || '';
+    const isOnProjectPage = currentView.startsWith('project');
+    const isUUID = (s) => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+    // Extract project name from meta description: "Project <name> in Orgn CDE"
+    const metaDesc = state.meta.description || '';
+    const metaProjectMatch = metaDesc.match(/^Project\s+(.+?)\s+in\s+Orgn\s*CDE$/i);
+    const metaProjectName = metaProjectMatch ? metaProjectMatch[1].trim() : null;
 
     // Title is the real project name if we're on a project page
-    // (e.g. "orgn-dc-addon" from the title, not "7e48b6db-..." from the URL)
-    const titleBasedName = isOnProjectPage && titleClean &&
-      !/^(projects?|dashboard|settings|new|orgn cde)$/i.test(titleClean)
+    const genericLabels = /^(projects?|dashboard|settings|new|orgn cde|new project|chat)$/i;
+    const titleBasedName = isOnProjectPage && titleClean && !genericLabels.test(titleClean)
       ? titleClean : null;
 
     state.computed.projectName =
       state.orgn.projectName ||
+      metaProjectName ||
       titleBasedName ||
-      (isUUID ? null : urlSlug) ||
+      (isUUID(urlSlug) ? null : urlSlug) ||
       null;
 
     // Active tab/subtab (query parameters)
@@ -780,9 +791,14 @@
     } else if (state.editor.hasTerminal && state.editor.terminalActive) {
       state.computed.activity = 'terminal';
       state.computed.activityTarget = 'Terminal';
-    } else if (state.orgn.currentView === 'editor') {
+    } else if (currentView === 'editor') {
       state.computed.activity = 'ide';
       state.computed.activityTarget = state.orgn.ideType || 'IDE';
+    } else if (currentView === 'chat-trial') {
+      // /chat/{trialId} -- Trial chat view
+      // Discord format: details = projectName, state = "Trial · <title clean>"
+      state.computed.activity = 'chat-trial';
+      state.computed.activityTarget = titleClean || 'Chat';
     } else if (state.computed.activeTab) {
       // Tab-based navigation within a project page
       // e.g. ?tab=tasks -> "Viewing Tasks", ?tab=context -> "Viewing Context"
@@ -808,12 +824,21 @@
     // Git branch if available
     state.computed.gitBranch = state.statusBar.git || null;
 
-    // Trial info
+    // Trial info -- also check chat trial ID
     state.computed.trialName =
       state.orgn.trialName ||
       state.title.parts.trialName ||
       state.url.routeInfo.trialId ||
       null;
+
+    // For chat-trial view, use the title as trial display name
+    // and the chat ID as the trial ID
+    if (currentView === 'chat-trial') {
+      state.computed.trialId = state.url.routeInfo.chatTrialId || null;
+      if (!state.computed.trialName && titleClean && !genericLabels.test(titleClean)) {
+        state.computed.trialName = titleClean;
+      }
+    }
 
     state.computed.trialStatus = state.orgn.trialStatus || null;
 

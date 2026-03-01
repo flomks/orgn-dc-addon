@@ -122,7 +122,8 @@ function detectCurrentView(pathname, isIDE, queryTab) {
   }
   if (/\/trials?\//i.test(pathname)) return 'trial';
   if (/\/new\/?$/i.test(pathname)) return 'new-project';
-  if (/\/chat/i.test(pathname)) return 'chat';
+  if (/\/chat\/[^/]+/i.test(pathname)) return 'chat-trial';
+  if (/\/chat\/?$/i.test(pathname)) return 'chat';
   if (/\/settings/i.test(pathname)) return 'settings';
   if (pathname === '/' || pathname === '') return 'dashboard';
   return 'other';
@@ -362,9 +363,14 @@ describe('Content Script - View Detection', () => {
     expect(detectCurrentView('/new/', false)).toBe('new-project');
   });
 
-  it('should detect chat page', () => {
+  it('should detect chat overview page', () => {
     expect(detectCurrentView('/chat', false)).toBe('chat');
-    expect(detectCurrentView('/chat/123', false)).toBe('chat');
+    expect(detectCurrentView('/chat/', false)).toBe('chat');
+  });
+
+  it('should detect chat trial page', () => {
+    expect(detectCurrentView('/chat/c7df83cb-8873-4d1a-8220-05ce0ec9d2bf', false)).toBe('chat-trial');
+    expect(detectCurrentView('/chat/123', false)).toBe('chat-trial');
   });
 
   it('should detect settings', () => {
