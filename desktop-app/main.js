@@ -422,6 +422,9 @@ function createWindow() {
     if (!app.isQuitting && !appSettings.quitOnClose) {
       event.preventDefault();
       mainWindow.hide();
+    } else if (!app.isQuitting && appSettings.quitOnClose) {
+      app.isQuitting = true;
+      app.quit();
     }
   });
 
