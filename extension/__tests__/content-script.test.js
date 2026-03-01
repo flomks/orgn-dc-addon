@@ -113,11 +113,16 @@ function parseTitleInfo(rawTitle) {
 
 // ── Helper: View detection from pathname ───────────────────────
 
-function detectCurrentView(pathname, isIDE) {
+function detectCurrentView(pathname, isIDE, queryTab) {
   if (/\/editor\b/i.test(pathname) || isIDE) return 'editor';
   if (/\/projects\/?$/i.test(pathname)) return 'projects-list';
-  if (/\/projects\/[^/]+\/?$/i.test(pathname)) return 'project-detail';
+  if (/\/projects\/[^/]+\/?$/i.test(pathname)) {
+    if (queryTab) return 'project-' + queryTab;
+    return 'project-detail';
+  }
   if (/\/trials?\//i.test(pathname)) return 'trial';
+  if (/\/new\/?$/i.test(pathname)) return 'new-project';
+  if (/\/chat/i.test(pathname)) return 'chat';
   if (/\/settings/i.test(pathname)) return 'settings';
   if (pathname === '/' || pathname === '') return 'dashboard';
   return 'other';
@@ -331,9 +336,35 @@ describe('Content Script - View Detection', () => {
     expect(detectCurrentView('/projects/my-project/', false)).toBe('project-detail');
   });
 
+  it('should detect project detail with tab query param', () => {
+    expect(detectCurrentView('/projects/my-project', false, 'tasks')).toBe('project-tasks');
+    expect(detectCurrentView('/projects/my-project', false, 'context')).toBe('project-context');
+    expect(detectCurrentView('/projects/my-project', false, 'explorer')).toBe('project-explorer');
+    expect(detectCurrentView('/projects/my-project', false, 'features')).toBe('project-features');
+    expect(detectCurrentView('/projects/my-project', false, 'security')).toBe('project-security');
+    expect(detectCurrentView('/projects/my-project', false, 'integrations')).toBe('project-integrations');
+    expect(detectCurrentView('/projects/my-project', false, 'usage')).toBe('project-usage');
+    expect(detectCurrentView('/projects/my-project', false, 'settings')).toBe('project-settings');
+  });
+
+  it('should detect project detail without tab when tab is null', () => {
+    expect(detectCurrentView('/projects/my-project', false, null)).toBe('project-detail');
+    expect(detectCurrentView('/projects/my-project', false, undefined)).toBe('project-detail');
+  });
+
   it('should detect trial view', () => {
     expect(detectCurrentView('/projects/p/trials/t123', false)).toBe('trial');
     expect(detectCurrentView('/projects/p/trial/t123', false)).toBe('trial');
+  });
+
+  it('should detect new project page', () => {
+    expect(detectCurrentView('/new', false)).toBe('new-project');
+    expect(detectCurrentView('/new/', false)).toBe('new-project');
+  });
+
+  it('should detect chat page', () => {
+    expect(detectCurrentView('/chat', false)).toBe('chat');
+    expect(detectCurrentView('/chat/123', false)).toBe('chat');
   });
 
   it('should detect settings', () => {

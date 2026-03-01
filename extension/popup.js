@@ -463,6 +463,8 @@ function renderDiagnostics(container, state, noteHtml) {
       'Activity': state.computed.activity,
       'Target': state.computed.activityTarget,
       'Project': state.computed.projectName,
+      'Active Tab': state.computed.activeTab,
+      'Active Subtab': state.computed.activeSubtab,
       'Trial': state.computed.trialName,
       'Trial Status': state.computed.trialStatus,
       'Language': state.computed.language,
@@ -478,6 +480,8 @@ function renderDiagnostics(container, state, noteHtml) {
       'Trial Status': state.orgn.trialStatus,
       'Workspace': state.orgn.workspaceName,
       'Current View': state.orgn.currentView,
+      'Active Tab': state.orgn.activeTab,
+      'Active Subtab': state.orgn.activeSubtab,
       'Is IDE': state.orgn.isIDE,
       'IDE Type': state.orgn.ideType,
       'User': state.orgn.userName,
@@ -487,9 +491,17 @@ function renderDiagnostics(container, state, noteHtml) {
 
   // URL info
   if (state.url) {
+    // Format query params for display
+    const paramEntries = state.url.searchParams ? Object.entries(state.url.searchParams) : [];
+    const paramStr = paramEntries.length > 0
+      ? paramEntries.map(([k, v]) => k + '=' + v).join(', ')
+      : null;
+
     html += renderDiagSection('URL', {
+      'Full URL': state.url.url,
       'Hostname': state.url.hostname,
       'Path': state.url.pathname,
+      'Query Params': paramStr,
       'Project Slug': state.url.routeInfo?.projectSlug,
       'Trial ID': state.url.routeInfo?.trialId,
       'Workspace ID': state.url.routeInfo?.workspaceId,
