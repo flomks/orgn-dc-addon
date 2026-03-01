@@ -208,11 +208,14 @@ function sleep(ms) {
 
 // ── Diagnostics Panel ────────────────────────────────────────────
 
+let lastDiagState = null; // Holds the last loaded state for export
+
 function initDiagnostics() {
   const toggle = $('diagToggle');
   const panel = $('diagPanel');
   const arrow = $('diagArrow');
   const refreshBtn = $('diagRefresh');
+  const exportBtn = $('diagExport');
 
   if (!toggle || !panel) return;
 
@@ -227,45 +230,70 @@ function initDiagnostics() {
   refreshBtn.addEventListener('click', () => {
     loadDiagnostics();
   });
+
+  exportBtn.addEventListener('click', () => {
+    exportStateAsJson();
+  });
 }
 
 async function loadDiagnostics() {
   const content = $('diagContent');
+  const exportBtn = $('diagExport');
   if (!content) return;
 
   content.innerHTML = '<div class="diag-error">Loading...</div>';
+  lastDiagState = null;
+  if (exportBtn) exportBtn.disabled = true;
 
   try {
-    // Request diagnostics from background (which asks content script)
-    const result = await sendMessage({ type: 'requestContentScriptDiagnostics' }, 5000);
+    // Request diagnostics from background (which handles injection + fallbacks)
+    const result = await sendMessage({ type: 'requestContentScriptDiagnostics' }, 10000);
 
-    if (result?.error) {
-      // Fallback: try to get stored state from background
-      const stored = await sendMessage({ type: 'getContentScriptState' }, 3000);
-      if (stored?.state) {
-        renderDiagnostics(content, stored.state);
-      } else {
-        content.innerHTML = '<div class="diag-error">' +
-          'Content script not active on this tab.<br>' +
-          'Navigate to an ORGN CDE page to see diagnostics.' +
-          '</div>';
-      }
+    // Success: we got state data
+    if (result?.state) {
+      lastDiagState = result.state;
+      if (exportBtn) exportBtn.disabled = false;
+      const staleNote = result.fromStorage
+        ? '<div class="diag-timestamp" style="color:#f59e0b;">Showing cached data (content script could not be reached live)</div>'
+        : '';
+      renderDiagnostics(content, result.state, staleNote);
       return;
     }
 
-    if (result?.state) {
-      renderDiagnostics(content, result.state);
-    } else {
-      content.innerHTML = '<div class="diag-error">No state data available</div>';
+    // Error with structured message from background
+    if (result?.error) {
+      let errorHtml = '';
+      switch (result.error) {
+        case 'not_on_orgn':
+          errorHtml = 'Current tab is not on an ORGN domain.<br>' +
+            'Open <strong>cde.orgn.com</strong> and try again.';
+          break;
+        case 'injection_failed':
+          errorHtml = 'Content script could not connect.<br>' +
+            'Try <strong>reloading the ORGN page</strong>, then refresh here.';
+          break;
+        default:
+          errorHtml = result.message || result.error || 'Unknown error';
+      }
+      content.innerHTML = '<div class="diag-error">' + errorHtml + '</div>';
+      return;
     }
+
+    content.innerHTML = '<div class="diag-error">No state data received</div>';
   } catch (e) {
-    // Last resort: read from storage
+    // Timeout or background not responding -- try reading storage directly
     try {
       const stored = await chrome.storage.local.get(['orgnContentScriptState']);
       if (stored.orgnContentScriptState) {
-        renderDiagnostics(content, stored.orgnContentScriptState);
+        lastDiagState = stored.orgnContentScriptState;
+        if (exportBtn) exportBtn.disabled = false;
+        const note = '<div class="diag-timestamp" style="color:#f59e0b;">Background unreachable. Showing last cached data.</div>';
+        renderDiagnostics(content, stored.orgnContentScriptState, note);
       } else {
-        content.innerHTML = '<div class="diag-error">Unable to load diagnostics: ' + e.message + '</div>';
+        content.innerHTML = '<div class="diag-error">' +
+          'Could not reach background service worker.<br>' +
+          'Try closing and reopening the popup.' +
+          '</div>';
       }
     } catch (e2) {
       content.innerHTML = '<div class="diag-error">Diagnostics unavailable</div>';
@@ -273,8 +301,44 @@ async function loadDiagnostics() {
   }
 }
 
-function renderDiagnostics(container, state) {
-  let html = '';
+function exportStateAsJson() {
+  if (!lastDiagState) return;
+
+  // Build a descriptive filename from hostname + path
+  const url = lastDiagState.url || {};
+  const hostname = (url.hostname || 'unknown').replace(/[^a-zA-Z0-9.-]/g, '_');
+  const pathname = (url.pathname || '/')
+    .replace(/^\//, '')       // strip leading slash
+    .replace(/\/$/,  '')       // strip trailing slash
+    .replace(/\//g,  '_')     // slashes -> underscores
+    .replace(/[^a-zA-Z0-9._-]/g, '_') // sanitize
+    || 'root';
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = 'orgn-state_' + hostname + '_' + pathname + '_' + timestamp + '.json';
+
+  // Pretty-print the full state
+  const json = JSON.stringify(lastDiagState, null, 2);
+
+  // Trigger download via blob URL
+  const blob = new Blob([json], { type: 'application/json' });
+  const blobUrl = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+
+  // Cleanup
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+  }, 100);
+}
+
+function renderDiagnostics(container, state, noteHtml) {
+  let html = noteHtml || '';
 
   // Computed (most important - what Discord will show)
   if (state.computed) {

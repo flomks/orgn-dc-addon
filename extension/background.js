@@ -476,20 +476,71 @@ async function handlePopupMessage(message) {
       // Ask the content script on the active tab for fresh diagnostics
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-          return new Promise((resolve) => {
+        if (!tab?.id) {
+          return { error: 'No active tab found' };
+        }
+
+        // First: try to reach an already-running content script
+        const directResult = await new Promise((resolve) => {
+          chrome.tabs.sendMessage(tab.id, { type: 'getDiagnostics' }, (response) => {
+            if (chrome.runtime.lastError) {
+              resolve(null); // Content script not loaded yet
+            } else {
+              resolve(response);
+            }
+          });
+        });
+
+        if (directResult?.state) {
+          return directResult;
+        }
+
+        // Second: content script is not loaded -- inject it programmatically
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content-script.js']
+          });
+
+          // Give it a moment to initialize and extract
+          await new Promise(r => setTimeout(r, 800));
+
+          // Now try again
+          const retryResult = await new Promise((resolve) => {
             chrome.tabs.sendMessage(tab.id, { type: 'getDiagnostics' }, (response) => {
               if (chrome.runtime.lastError) {
-                resolve({ error: 'Content script not available on this tab', details: chrome.runtime.lastError.message });
+                resolve(null);
               } else {
-                resolve(response || { error: 'No response from content script' });
+                resolve(response);
               }
             });
           });
+
+          if (retryResult?.state) {
+            return retryResult;
+          }
+        } catch (injectErr) {
+          // scripting.executeScript may fail if tab URL is not permitted
+          console.warn('[ORGN] Could not inject content script:', injectErr.message);
         }
-        return { error: 'No active tab' };
+
+        // Third: fall back to last stored state
+        const csStored = await chrome.storage.local.get(['orgnContentScriptState']);
+        if (csStored.orgnContentScriptState) {
+          return { state: csStored.orgnContentScriptState, fromStorage: true };
+        }
+
+        // Determine a helpful error message
+        let hostname = '';
+        try { hostname = new URL(tab.url || '').hostname; } catch (e) { /* ignore */ }
+        const onOrgn = isOrgnDomain(hostname);
+
+        if (!onOrgn) {
+          return { error: 'not_on_orgn', message: 'Current tab is not on an ORGN domain (' + hostname + ')' };
+        }
+        return { error: 'injection_failed', message: 'Content script could not be loaded. Try reloading the page.' };
       } catch (e) {
-        return { error: e.message };
+        return { error: 'exception', message: e.message };
       }
     }
 
