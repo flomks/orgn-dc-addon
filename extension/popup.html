@@ -445,6 +445,44 @@
       color: #52525b;
     }
 
+    .diag-tab-row {
+      display: flex;
+      border-bottom: 1px solid #1e1e22;
+    }
+    .diag-tab {
+      flex: 1;
+      padding: 7px 8px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #52525b;
+      cursor: pointer;
+      font-family: 'Geist', sans-serif;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .diag-tab:hover { color: #a1a1aa; }
+    .diag-tab.active {
+      color: #a78bfa;
+      border-bottom-color: #a78bfa;
+    }
+
+    .diag-raw-pre {
+      padding: 10px 12px;
+      margin: 0;
+      font-family: 'Geist Mono', monospace;
+      font-size: 9px;
+      line-height: 1.5;
+      color: #a1a1aa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
     .diag-error {
       padding: 10px 12px;
       color: #ef4444;
@@ -562,8 +600,15 @@
         <button class="diag-btn-refresh" id="diagRefresh">Refresh</button>
         <button class="diag-btn-export" id="diagExport" disabled>Export JSON</button>
       </div>
+      <div class="diag-tab-row">
+        <button class="diag-tab active" id="diagTabParsed">Parsed</button>
+        <button class="diag-tab" id="diagTabRaw">Raw Data</button>
+      </div>
       <div id="diagContent">
         <div class="diag-error">Click Refresh to load state data</div>
+      </div>
+      <div id="diagRawContent" class="hidden">
+        <pre class="diag-raw-pre"></pre>
       </div>
     </div>
   </div>
