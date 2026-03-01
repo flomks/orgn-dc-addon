@@ -121,7 +121,11 @@ function parseOrgnPage(title, url) {
   const result = { details: '', state: '' };
   if (!title) return result;
 
-  const cleanTitle = title.replace(/\s*[·|]\s*Orgn CDE\s*$/i, '').trim();
+  // Remove suffix; require spaces around dash to avoid splitting names like "orgn-dc-addon"
+  const cleanTitle = title
+    .replace(/\s*[·|]\s*Orgn CDE\s*$/i, '')
+    .replace(/\s+[-–]\s+Orgn CDE\s*$/i, '')
+    .trim();
 
   if (!cleanTitle || cleanTitle.toLowerCase() === 'orgn cde') {
     result.details = 'Dashboard';
@@ -129,16 +133,16 @@ function parseOrgnPage(title, url) {
     return result;
   }
 
-  // Trial pattern: "name - Trial"
-  const trialMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*Trial$/i);
+  // Trial pattern: "name - Trial"  (requires spaces around the dash)
+  const trialMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+Trial$/i);
   if (trialMatch) {
     result.details = 'Working on Trial';
     result.state = trialMatch[1].trim();
     return result;
   }
 
-  // Other separator pattern: "name - Type"
-  const sepMatch = cleanTitle.match(/^(.+?)\s*[-–]\s*(.+)$/);
+  // Other separator pattern: "section - subsection"  (requires spaces around the dash)
+  const sepMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+(.+)$/);
   if (sepMatch) {
     result.details = sepMatch[1].trim();
     result.state = sepMatch[2].trim();
