@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { WebSocketServer } = require('ws');
 const DiscordClient = require('../lib/DiscordClient');
+const AutoLaunch = require('auto-launch');
 
 const WS_PORT = 7890;
 
@@ -18,6 +19,15 @@ let storedClientId = null;
 let appSettings = {
   quitOnClose: false
 };
+
+// Initialize AutoLaunch instance
+let autoLauncher = null;
+if (app.isPackaged) {
+  autoLauncher = new AutoLaunch({
+    name: 'ORGN Discord Bridge',
+    path: app.getPath('exe')
+  });
+}
 
 // Track connected WebSocket clients
 const wsClients = new Set();
@@ -85,6 +95,64 @@ function saveAppSettings(settings) {
     return { success: true };
   } catch (error) {
     addLog('ERROR', 'Failed to save app settings:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// ============================================================
+// Autostart Management
+// ============================================================
+
+/**
+ * Get the current autostart status
+ * @returns {Promise<{enabled: boolean, isDevelopment: boolean, error?: string}>}
+ */
+async function getAutostartStatus() {
+  try {
+    if (!app.isPackaged || !autoLauncher) {
+      return { 
+        enabled: false, 
+        isDevelopment: true
+      };
+    }
+    
+    const isEnabled = await autoLauncher.isEnabled();
+    return { enabled: isEnabled, isDevelopment: false };
+  } catch (error) {
+    addLog('ERROR', 'Failed to get autostart status:', error.message);
+    return { enabled: false, isDevelopment: false, error: error.message };
+  }
+}
+
+/**
+ * Set the autostart status
+ * @param {boolean} enabled - Whether to enable or disable autostart
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function setAutostartStatus(enabled) {
+  try {
+    if (!app.isPackaged || !autoLauncher) {
+      const message = 'Autostart is only available in the installed version';
+      addLog('WARN', message);
+      return { success: false, isDevelopment: true, error: message };
+    }
+    
+    if (enabled) {
+      await autoLauncher.enable();
+      addLog('INFO', 'Autostart enabled successfully');
+    } else {
+      await autoLauncher.disable();
+      addLog('INFO', 'Autostart disabled successfully');
+    }
+    
+    // Update tray menu to reflect the change
+    if (typeof updateTrayMenu === 'function') {
+      updateTrayMenu();
+    }
+    
+    return { success: true };
+  } catch (error) {
+    addLog('ERROR', `Failed to ${enabled ? 'enable' : 'disable'} autostart:`, error.message);
     return { success: false, error: error.message };
   }
 }
@@ -450,8 +518,11 @@ function createWindow() {
   });
 }
 
-function updateTrayMenu() {
+async function updateTrayMenu() {
   if (!tray) return;
+  
+  // Get current autostart status
+  const autostartStatus = await getAutostartStatus();
   
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -460,7 +531,7 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: mainWindow && mainWindow.isVisible() ? 'Fenster verstecken' : 'Fenster anzeigen',
+      label: mainWindow && mainWindow.isVisible() ? 'Hide window' : 'Show window',
       click: () => {
         if (mainWindow) {
           if (mainWindow.isVisible()) {
@@ -483,58 +554,21 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: app.isPackaged ? 'Start with system' : 'Start with system (nur in installierter Version)',
+      label: app.isPackaged ? 'Start with system' : 'Start with system (only in installed version)',
       type: 'checkbox',
-      checked: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+      checked: autostartStatus.enabled,
       enabled: app.isPackaged,
-      click: (menuItem) => {
+      click: async (menuItem) => {
         if (!app.isPackaged) {
-          addLog('WARN', 'Autostart funktioniert nur in der installierten Version');
+          addLog('WARN', 'Autostart only works in the installed version');
           return;
         }
         
-        const options = {
-          openAtLogin: menuItem.checked,
-          openAsHidden: true
-        };
-        
-        if (process.platform === 'darwin') {
-          options.path = app.getPath('exe');
+        const result = await setAutostartStatus(menuItem.checked);
+        if (!result.success) {
+          // Revert the checkbox state if the operation failed
+          menuItem.checked = !menuItem.checked;
         }
-        
-        if (process.platform === 'linux') {
-          const os = require('os');
-          const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
-          
-          if (menuItem.checked) {
-            const autostartDir = path.dirname(desktopFilePath);
-            if (!fs.existsSync(autostartDir)) {
-              fs.mkdirSync(autostartDir, { recursive: true });
-            }
-            
-            const desktopContent = `[Desktop Entry]
-Type=Application
-Name=ORGN Discord Bridge
-Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-`;
-            
-            fs.writeFileSync(desktopFilePath, desktopContent);
-            addLog('INFO', 'Autostart enabled via tray menu');
-          } else {
-            if (fs.existsSync(desktopFilePath)) {
-              fs.unlinkSync(desktopFilePath);
-              addLog('INFO', 'Autostart disabled via tray menu');
-            }
-          }
-        } else {
-          app.setLoginItemSettings(options);
-          addLog('INFO', `Autostart ${menuItem.checked ? 'enabled' : 'disabled'} via tray menu`);
-        }
-        
-        updateTrayMenu();
       }
     },
     { type: 'separator' },
@@ -544,7 +578,7 @@ X-GNOME-Autostart-enabled=true
     },
     { type: 'separator' },
     {
-      label: 'Beenden',
+      label: 'Exit',
       click: () => {
         app.isQuitting = true;
         app.quit();
@@ -660,77 +694,19 @@ ipcMain.handle('save-app-settings', (event, settings) => {
 });
 
 // Autostart handlers
-ipcMain.handle('get-autostart', () => {
-  try {
-    if (!app.isPackaged) {
-      return { 
-        enabled: false, 
-        isDevelopment: true,
-        message: 'Autostart is only available in the installed version.'
-      };
-    }
-    return { enabled: app.getLoginItemSettings().openAtLogin, isDevelopment: false };
-  } catch (error) {
-    addLog('ERROR', 'Failed to get autostart setting:', error.message);
-    return { enabled: false, isDevelopment: false, error: error.message };
+ipcMain.handle('get-autostart', async () => {
+  const status = await getAutostartStatus();
+  if (status.isDevelopment) {
+    return {
+      ...status,
+      message: 'Autostart is only available in the installed version.'
+    };
   }
+  return status;
 });
 
-ipcMain.handle('set-autostart', (event, { enabled }) => {
-  try {
-    if (!app.isPackaged) {
-      const message = 'Autostart only works in installed version. Use "npm run build:win/mac/linux" to create an installable build.';
-      addLog('WARN', message);
-      return { success: false, isDevelopment: true, error: message };
-    }
-    
-    const options = { openAtLogin: enabled, openAsHidden: true };
-    
-    if (process.platform === 'darwin') {
-      options.path = app.getPath('exe');
-    }
-    
-    if (process.platform === 'linux') {
-      const os = require('os');
-      const desktopFilePath = path.join(os.homedir(), '.config', 'autostart', 'discord-rpc.desktop');
-      
-      if (enabled) {
-        const autostartDir = path.dirname(desktopFilePath);
-        if (!fs.existsSync(autostartDir)) {
-          fs.mkdirSync(autostartDir, { recursive: true });
-        }
-        
-        const desktopContent = `[Desktop Entry]
-Type=Application
-Name=ORGN Discord Bridge
-Exec=${process.execPath} ${process.argv.slice(1).join(' ')}
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-`;
-        
-        fs.writeFileSync(desktopFilePath, desktopContent);
-        addLog('INFO', 'Autostart enabled (Linux desktop file created)');
-      } else {
-        if (fs.existsSync(desktopFilePath)) {
-          fs.unlinkSync(desktopFilePath);
-          addLog('INFO', 'Autostart disabled (Linux desktop file removed)');
-        }
-      }
-    } else {
-      app.setLoginItemSettings(options);
-      addLog('INFO', `Autostart ${enabled ? 'enabled' : 'disabled'}`);
-    }
-    
-    if (typeof updateTrayMenu === 'function') {
-      updateTrayMenu();
-    }
-    
-    return { success: true };
-  } catch (error) {
-    addLog('ERROR', 'Failed to set autostart:', error.message);
-    return { success: false, error: error.message };
-  }
+ipcMain.handle('set-autostart', async (event, { enabled }) => {
+  return await setAutostartStatus(enabled);
 });
 
 // ============================================================
