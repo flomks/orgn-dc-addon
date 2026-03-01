@@ -8,6 +8,7 @@ const KEEPALIVE_ALARM = 'keepalive';
 let ws = null;
 let desktopAppConnected = false;
 let lastOrgnState = null;
+let lastContentScriptState = null; // Rich state from content script
 
 // ── Service Worker Keep-Alive ────────────────────────────────────
 // Chrome alarms survive service worker restarts. This fires every ~25s
@@ -254,6 +255,144 @@ async function checkOrgnTabsExist() {
   } catch (e) { /* ignore */ }
 }
 
+// ── Content Script State Handling ─────────────────────────────────
+
+function handleContentScriptState(state, sender) {
+  if (!state) return;
+
+  lastContentScriptState = {
+    ...state,
+    receivedAt: Date.now(),
+    tabId: sender?.tab?.id || null
+  };
+
+  // Store content script state for popup diagnostics
+  chrome.storage.local.set({
+    orgnContentScriptState: lastContentScriptState
+  });
+
+  // Also trigger an activity update with enriched data
+  updateActivityFromContentScript(state);
+}
+
+async function updateActivityFromContentScript(state) {
+  try {
+    if (await isTrackingPaused()) return;
+
+    const computed = state.computed || {};
+    const orgn = state.orgn || {};
+    const editor = state.editor || {};
+    const url = state.url || {};
+
+    // Build enriched details and state strings
+    let details = '';
+    let activityState = '';
+    let smallImageKey = null;
+    let smallImageText = null;
+
+    // Determine primary activity
+    if (computed.activity === 'editing' && computed.activityTarget) {
+      details = 'Editing ' + computed.activityTarget;
+      if (computed.language) {
+        smallImageText = computed.language;
+      }
+    } else if (computed.activity === 'terminal') {
+      details = 'Using Terminal';
+    } else if (computed.activity === 'ide') {
+      details = 'In IDE';
+      if (orgn.ideType) {
+        details += ' (' + orgn.ideType + ')';
+      }
+    } else {
+      // Browsing mode - use current view
+      const viewLabels = {
+        'dashboard': 'Viewing Dashboard',
+        'projects-list': 'Browsing Projects',
+        'project-detail': 'Viewing Project',
+        'trial': 'Working on Trial',
+        'settings': 'In Settings',
+        'editor': 'In Editor',
+        'other': 'Browsing'
+      };
+      details = viewLabels[orgn.currentView] || 'Browsing';
+    }
+
+    // Build state string (project + trial context)
+    const parts = [];
+    if (computed.projectName) {
+      parts.push(computed.projectName);
+    }
+    if (computed.trialName && computed.trialName !== computed.projectName) {
+      parts.push(computed.trialName);
+    }
+    if (computed.gitBranch) {
+      parts.push('branch: ' + computed.gitBranch);
+    }
+    activityState = parts.join(' / ') || 'ORGN CDE';
+
+    // Check if this represents an actual change
+    const stateKey = `${details}|${activityState}|${smallImageText || ''}`;
+    if (stateKey === lastOrgnState && desktopAppConnected) return;
+    lastOrgnState = stateKey;
+
+    // Get or create session
+    let sessionStart = await getSessionStart();
+    if (!sessionStart) {
+      sessionStart = Date.now();
+      await chrome.storage.local.set({ orgnSessionStart: sessionStart });
+    }
+
+    // Apply privacy settings
+    const privacySettings = await chrome.storage.sync.get(['hideNames']);
+    const hideNames = privacySettings.hideNames === true;
+
+    let displayDetails = details || 'ORGN CDE';
+    let displayState = activityState || 'Active';
+
+    if (hideNames) {
+      const safeLabels = [
+        'Dashboard', 'Browsing', 'Active', 'In IDE', 'In Editor',
+        'Using Terminal', 'Browsing Projects', 'In Settings',
+        'Viewing Dashboard', 'Working on Trial', 'Viewing Project'
+      ];
+      if (!safeLabels.some(l => displayDetails.startsWith(l))) {
+        displayDetails = 'VibeCoding';
+      }
+      displayState = 'VibeCoding';
+    }
+
+    // Store for popup (always real names)
+    await chrome.storage.local.set({
+      orgnLastDetails: details,
+      orgnLastState: activityState
+    });
+
+    // Build activity object
+    const activity = {
+      details: displayDetails,
+      state: displayState,
+      startTimestamp: sessionStart,
+      largeImageKey: 'orgn',
+      largeImageText: 'ORGN CDE',
+      instance: false
+    };
+
+    if (smallImageKey) {
+      activity.smallImageKey = smallImageKey;
+    }
+    if (smallImageText && !hideNames) {
+      activity.smallImageText = smallImageText;
+    }
+
+    send({
+      type: 'setActivity',
+      activity
+    });
+  } catch (e) {
+    console.warn('[ORGN] Error updating from content script:', e);
+  }
+}
+
 // ── Event Listeners ──────────────────────────────────────────────
 
 chrome.tabs.onActivated?.addListener(() => checkActiveTab());
@@ -268,8 +407,16 @@ chrome.tabs.onRemoved?.addListener(() => {
   setTimeout(() => checkOrgnTabsExist(), 500);
 });
 
-// Messages from popup
+// Messages from popup and content scripts
 chrome.runtime.onMessage?.addListener((message, sender, sendResponse) => {
+  // Content script state updates (from content-script.js)
+  if (message.type === 'contentScriptState') {
+    handleContentScriptState(message.state, sender);
+    sendResponse({ acknowledged: true });
+    return true;
+  }
+
+  // All other messages (popup, etc.)
   handlePopupMessage(message).then(sendResponse);
   return true; // keep channel open for async response
 });
@@ -306,6 +453,36 @@ async function handlePopupMessage(message) {
       ]);
       send({ type: 'clearActivity' });
       return { success: true };
+
+    case 'getContentScriptState': {
+      // Return the last state received from the content script
+      const csState = await chrome.storage.local.get(['orgnContentScriptState']);
+      return {
+        state: csState.orgnContentScriptState || null,
+        lastContentScriptState: lastContentScriptState
+      };
+    }
+
+    case 'requestContentScriptDiagnostics': {
+      // Ask the content script on the active tab for fresh diagnostics
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          return new Promise((resolve) => {
+            chrome.tabs.sendMessage(tab.id, { type: 'getDiagnostics' }, (response) => {
+              if (chrome.runtime.lastError) {
+                resolve({ error: 'Content script not available on this tab', details: chrome.runtime.lastError.message });
+              } else {
+                resolve(response || { error: 'No response from content script' });
+              }
+            });
+          });
+        }
+        return { error: 'No active tab' };
+      } catch (e) {
+        return { error: e.message };
+      }
+    }
 
     case 'resetSession': {
       const newStart = Date.now();

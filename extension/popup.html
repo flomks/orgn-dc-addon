@@ -310,6 +310,131 @@
     }
 
     .hidden { display: none !important; }
+
+    /* Diagnostics Panel */
+    .diag-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      margin-top: 8px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .diag-toggle:hover {
+      background: #27272a;
+      border-color: #3f3f46;
+    }
+    .diag-toggle-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #71717a;
+    }
+    .diag-toggle-arrow {
+      font-size: 10px;
+      color: #71717a;
+      transition: transform 0.2s;
+    }
+    .diag-toggle-arrow.open {
+      transform: rotate(180deg);
+    }
+
+    .diag-panel {
+      margin-top: 8px;
+      background: #0f0f11;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      overflow: hidden;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .diag-section {
+      border-bottom: 1px solid #1e1e22;
+    }
+    .diag-section:last-child {
+      border-bottom: none;
+    }
+
+    .diag-section-header {
+      padding: 8px 12px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #a78bfa;
+      background: #18181b;
+    }
+
+    .diag-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 4px 12px;
+      gap: 8px;
+    }
+    .diag-row:nth-child(even) {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .diag-key {
+      font-size: 10px;
+      color: #71717a;
+      white-space: nowrap;
+      flex-shrink: 0;
+      font-family: 'Geist Mono', monospace;
+    }
+
+    .diag-val {
+      font-size: 10px;
+      color: #d4d4d8;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+      font-family: 'Geist Mono', monospace;
+    }
+    .diag-val.true { color: #22c55e; }
+    .diag-val.false { color: #ef4444; }
+    .diag-val.null { color: #71717a; font-style: italic; }
+
+    .diag-refresh {
+      display: block;
+      width: 100%;
+      padding: 8px;
+      background: #18181b;
+      border: none;
+      color: #a78bfa;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'Geist', sans-serif;
+    }
+    .diag-refresh:hover {
+      background: #27272a;
+      color: #c4b5fd;
+    }
+
+    .diag-error {
+      padding: 10px 12px;
+      color: #ef4444;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .diag-timestamp {
+      padding: 4px 12px 8px;
+      font-size: 9px;
+      color: #52525b;
+      text-align: right;
+      font-family: 'Geist Mono', monospace;
+    }
   </style>
 </head>
 <body>
@@ -400,6 +525,18 @@
             tracking your activity in Discord.
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Diagnostics Panel (collapsible) -->
+    <div class="diag-toggle" id="diagToggle">
+      <span class="diag-toggle-label">State Diagnostics</span>
+      <span class="diag-toggle-arrow" id="diagArrow">&#9660;</span>
+    </div>
+    <div id="diagPanel" class="diag-panel hidden">
+      <button class="diag-refresh" id="diagRefresh">Refresh Diagnostics</button>
+      <div id="diagContent">
+        <div class="diag-error">Click refresh to load diagnostics</div>
       </div>
     </div>
   </div>

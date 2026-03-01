@@ -206,6 +206,243 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ── Diagnostics Panel ────────────────────────────────────────────
+
+function initDiagnostics() {
+  const toggle = $('diagToggle');
+  const panel = $('diagPanel');
+  const arrow = $('diagArrow');
+  const refreshBtn = $('diagRefresh');
+
+  if (!toggle || !panel) return;
+
+  toggle.addEventListener('click', () => {
+    const isHidden = panel.classList.toggle('hidden');
+    arrow.classList.toggle('open', !isHidden);
+    if (!isHidden) {
+      loadDiagnostics();
+    }
+  });
+
+  refreshBtn.addEventListener('click', () => {
+    loadDiagnostics();
+  });
+}
+
+async function loadDiagnostics() {
+  const content = $('diagContent');
+  if (!content) return;
+
+  content.innerHTML = '<div class="diag-error">Loading...</div>';
+
+  try {
+    // Request diagnostics from background (which asks content script)
+    const result = await sendMessage({ type: 'requestContentScriptDiagnostics' }, 5000);
+
+    if (result?.error) {
+      // Fallback: try to get stored state from background
+      const stored = await sendMessage({ type: 'getContentScriptState' }, 3000);
+      if (stored?.state) {
+        renderDiagnostics(content, stored.state);
+      } else {
+        content.innerHTML = '<div class="diag-error">' +
+          'Content script not active on this tab.<br>' +
+          'Navigate to an ORGN CDE page to see diagnostics.' +
+          '</div>';
+      }
+      return;
+    }
+
+    if (result?.state) {
+      renderDiagnostics(content, result.state);
+    } else {
+      content.innerHTML = '<div class="diag-error">No state data available</div>';
+    }
+  } catch (e) {
+    // Last resort: read from storage
+    try {
+      const stored = await chrome.storage.local.get(['orgnContentScriptState']);
+      if (stored.orgnContentScriptState) {
+        renderDiagnostics(content, stored.orgnContentScriptState);
+      } else {
+        content.innerHTML = '<div class="diag-error">Unable to load diagnostics: ' + e.message + '</div>';
+      }
+    } catch (e2) {
+      content.innerHTML = '<div class="diag-error">Diagnostics unavailable</div>';
+    }
+  }
+}
+
+function renderDiagnostics(container, state) {
+  let html = '';
+
+  // Computed (most important - what Discord will show)
+  if (state.computed) {
+    html += renderDiagSection('Computed State', {
+      'Activity': state.computed.activity,
+      'Target': state.computed.activityTarget,
+      'Project': state.computed.projectName,
+      'Trial': state.computed.trialName,
+      'Trial Status': state.computed.trialStatus,
+      'Language': state.computed.language,
+      'Git Branch': state.computed.gitBranch
+    });
+  }
+
+  // ORGN-specific
+  if (state.orgn) {
+    html += renderDiagSection('ORGN CDE', {
+      'Project Name': state.orgn.projectName,
+      'Trial Name': state.orgn.trialName,
+      'Trial Status': state.orgn.trialStatus,
+      'Workspace': state.orgn.workspaceName,
+      'Current View': state.orgn.currentView,
+      'Is IDE': state.orgn.isIDE,
+      'IDE Type': state.orgn.ideType,
+      'User': state.orgn.userName,
+      'Organization': state.orgn.organizationName
+    });
+  }
+
+  // URL info
+  if (state.url) {
+    html += renderDiagSection('URL', {
+      'Hostname': state.url.hostname,
+      'Path': state.url.pathname,
+      'Project Slug': state.url.routeInfo?.projectSlug,
+      'Trial ID': state.url.routeInfo?.trialId,
+      'Workspace ID': state.url.routeInfo?.workspaceId,
+      'Is Editor': state.url.routeInfo?.isEditor,
+      'Is Settings': state.url.routeInfo?.isSettings,
+      'Segments': state.url.pathInfo?.segments?.join(' / ')
+    });
+  }
+
+  // Title info
+  if (state.title) {
+    html += renderDiagSection('Title', {
+      'Raw': state.title.raw,
+      'Clean': state.title.clean,
+      'Trial Name': state.title.parts?.trialName,
+      'Page Type': state.title.parts?.pageType,
+      'Primary': state.title.parts?.primary,
+      'Secondary': state.title.parts?.secondary
+    });
+  }
+
+  // Editor state
+  if (state.editor) {
+    html += renderDiagSection('Editor', {
+      'Has Editor': state.editor.hasEditor,
+      'Editor Type': state.editor.editorType,
+      'Active File': state.editor.activeFile,
+      'Language': state.editor.activeLanguage,
+      'Open Tabs': state.editor.openTabs?.length > 0
+        ? state.editor.openTabs.slice(0, 5).join(', ') + (state.editor.openTabs.length > 5 ? '...' : '')
+        : null,
+      'Cursor': state.editor.cursorPosition,
+      'VS Code Web': state.editor.isVSCodeWeb,
+      'Workspace': state.editor.workspaceName,
+      'Has Terminal': state.editor.hasTerminal,
+      'Terminal Active': state.editor.terminalActive
+    });
+  }
+
+  // Status Bar
+  if (state.statusBar) {
+    html += renderDiagSection('Status Bar', {
+      'Visible': state.statusBar.visible,
+      'Git': state.statusBar.git,
+      'Language': state.statusBar.language,
+      'Encoding': state.statusBar.encoding,
+      'Items': state.statusBar.items?.length > 0
+        ? state.statusBar.items.slice(0, 8).join(' | ')
+        : null
+    });
+  }
+
+  // Sidebar
+  if (state.sidebar) {
+    html += renderDiagSection('Sidebar', {
+      'Visible': state.sidebar.visible,
+      'Active Panel': state.sidebar.activePanel,
+      'File Tree': state.sidebar.fileTreeVisible,
+      'Selected File': state.sidebar.selectedFile
+    });
+  }
+
+  // Page Elements
+  if (state.page) {
+    html += renderDiagSection('Page Elements', {
+      'Has Navbar': state.page.hasNavbar,
+      'Has Breadcrumbs': state.page.hasBreadcrumbs,
+      'Has Modal': state.page.hasModal,
+      'Has Panel': state.page.hasPanel,
+      'Panel Content': state.page.panelContent,
+      'Breadcrumbs': state.page.breadcrumbPath?.length > 0
+        ? state.page.breadcrumbPath.join(' > ')
+        : null,
+      'Nav Items': state.page.navItems?.length > 0
+        ? state.page.navItems.slice(0, 6).join(', ')
+        : null
+    });
+  }
+
+  // Meta tags (selected)
+  if (state.meta) {
+    html += renderDiagSection('Meta Tags', {
+      'OG Title': state.meta.ogTitle,
+      'OG Description': state.meta.ogDescription,
+      'OG Site Name': state.meta.ogSiteName,
+      'App Name': state.meta.applicationName,
+      'Theme Color': state.meta.themeColor,
+      'Description': state.meta.description
+    });
+  }
+
+  // Timestamp
+  if (state.timestamp) {
+    html += '<div class="diag-timestamp">Extracted: ' + new Date(state.timestamp).toLocaleTimeString() + '</div>';
+  }
+  if (state.receivedAt) {
+    html += '<div class="diag-timestamp">Received by BG: ' + new Date(state.receivedAt).toLocaleTimeString() + '</div>';
+  }
+
+  container.innerHTML = html || '<div class="diag-error">No data extracted</div>';
+}
+
+function renderDiagSection(title, data) {
+  let html = '<div class="diag-section">';
+  html += '<div class="diag-section-header">' + escapeHtml(title) + '</div>';
+
+  for (const [key, value] of Object.entries(data)) {
+    const displayVal = formatDiagValue(value);
+    const valClass = value === true ? ' true' : value === false ? ' false' : (value === null || value === undefined) ? ' null' : '';
+    html += '<div class="diag-row">';
+    html += '<span class="diag-key">' + escapeHtml(key) + '</span>';
+    html += '<span class="diag-val' + valClass + '" title="' + escapeHtml(String(displayVal)) + '">' + escapeHtml(displayVal) + '</span>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function formatDiagValue(value) {
+  if (value === null || value === undefined) return 'null';
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  if (typeof value === 'number') return String(value);
+  return String(value);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // ── Start ────────────────────────────────────────────────────────
 
 init();
+initDiagnostics();
