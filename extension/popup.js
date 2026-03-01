@@ -38,6 +38,17 @@ async function init() {
   } catch (e) { /* ignore */ }
 
   // 4. Show the right view
+  // If we're on ORGN, ask background to re-check the active tab immediately
+  // so the popup always shows the freshest parsed data (not stale cache)
+  if (isOnOrgn) {
+    try { await sendMessage({ type: 'forceRefreshState' }, 2000); } catch (e) { /* ignore */ }
+    // Re-read storage after the forced re-check
+    const freshStored = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState', 'orgnSessionStart']);
+    if (freshStored.orgnLastDetails) stored.orgnLastDetails = freshStored.orgnLastDetails;
+    if (freshStored.orgnLastState) stored.orgnLastState = freshStored.orgnLastState;
+    if (freshStored.orgnSessionStart) stored.orgnSessionStart = freshStored.orgnSessionStart;
+  }
+
   if (isOnOrgn || stored.orgnSessionStart) {
     const details = stored.orgnLastDetails || '--';
     const state = stored.orgnLastState || '--';

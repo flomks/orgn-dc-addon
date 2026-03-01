@@ -7,7 +7,7 @@
 
   // Version-gated guard: prevents double-injection within the same version,
   // but allows re-injection after extension updates (new SCRIPT_VERSION).
-  const SCRIPT_VERSION = 3;
+  const SCRIPT_VERSION = 4;
   if (window.__orgnBridgeContentScriptVersion === SCRIPT_VERSION) return;
   window.__orgnBridgeContentScriptVersion = SCRIPT_VERSION;
 

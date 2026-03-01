@@ -587,6 +587,19 @@ async function handlePopupMessage(message) {
       }
     }
 
+    case 'forceRefreshState': {
+      // Force re-parse of the active tab without resetting the session timer.
+      // This ensures the popup always sees freshly parsed data.
+      lastOrgnState = null; // clear cache so checkActiveTab always writes
+      await checkActiveTab();
+      const refreshed = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
+      return {
+        success: true,
+        details: refreshed.orgnLastDetails || null,
+        state: refreshed.orgnLastState || null
+      };
+    }
+
     case 'resetSession': {
       const newStart = Date.now();
       lastOrgnState = null;
