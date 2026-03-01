@@ -304,9 +304,9 @@ async function updateActivityFromContentScript(state) {
 
     // Determine primary activity
     if (computed.activity === 'chat-trial') {
-      // /chat/{trialId} -- show: details = projectName, state = "Trial · <name>"
-      details = computed.projectName || 'ORGN CDE';
-      activityState = 'Trial \u00B7 ' + (computed.activityTarget || computed.trialName || 'Working');
+      // /chat/{trialId} -- show: details = target, state = "Trial · Editing"
+      details = computed.activityTarget || computed.trialName || 'Chat';
+      activityState = 'Trial \u00B7 Editing';
     } else if (computed.activity === 'editing' && computed.activityTarget) {
       details = 'Editing ' + computed.activityTarget;
       if (computed.language) {
