@@ -213,10 +213,11 @@ async function checkOrgnTabsExist() {
 // When the user switches tabs or a page finishes loading, ask the
 // content script on the new active tab for fresh state.
 //
-// Chrome freezes inactive tabs (Tab Throttling).  When a frozen tab
-// is activated, its JS context takes a moment to "thaw" before it can
-// respond to messages.  We therefore retry several times with short
-// delays before falling back to re-injection or URL-based state.
+// IMPORTANT: In Manifest V3, the service worker can be killed at any
+// time unless a Chrome API call is pending.  Every async step must
+// therefore be anchored to a chrome.* API call (e.g. storage.local.set)
+// to extend the SW lifetime.  Plain setTimeout() does NOT keep the
+// worker alive.
 
 function requestContentScriptState(tabId) {
   return new Promise((resolve) => {
@@ -229,6 +230,18 @@ function requestContentScriptState(tabId) {
   });
 }
 
+// Delay that keeps the service worker alive by anchoring to a chrome
+// storage write.  Plain setTimeout can be killed by Chrome mid-wait.
+function keepAliveDelay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(async () => {
+      // Touch storage to signal Chrome that we're still doing work
+      await chrome.storage.local.set({ _swPing: Date.now() });
+      resolve();
+    }, ms);
+  });
+}
+
 async function refreshActiveTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -238,27 +251,26 @@ async function refreshActiveTab() {
     try { hostname = new URL(tab.url).hostname; } catch { return; }
     if (!isOrgnDomain(hostname)) return;
 
-    // Retry up to 3 times with increasing delays to let frozen tabs thaw.
-    // Delays: 0ms (immediate), 300ms, 800ms -- total worst case ~1.1s
-    const delays = [0, 300, 800];
-    for (const delay of delays) {
-      if (delay > 0) await new Promise(r => setTimeout(r, delay));
-      const state = await requestContentScriptState(tab.id);
-      if (state) {
-        handleContentScriptState(state, { tab });
-        return;
-      }
-    }
+    // Attempt 1: immediate
+    let state = await requestContentScriptState(tab.id);
+    if (state) { handleContentScriptState(state, { tab }); return; }
+
+    // Attempt 2: wait 250ms for frozen tab to thaw (anchored to chrome API)
+    await keepAliveDelay(250);
+    state = await requestContentScriptState(tab.id);
+    if (state) { handleContentScriptState(state, { tab }); return; }
+
+    // Attempt 3: wait another 500ms
+    await keepAliveDelay(500);
+    state = await requestContentScriptState(tab.id);
+    if (state) { handleContentScriptState(state, { tab }); return; }
 
     // Content script still unreachable -- try re-injection
     try {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-script.js'] });
-      await new Promise(r => setTimeout(r, 500));
-      const state = await requestContentScriptState(tab.id);
-      if (state) {
-        handleContentScriptState(state, { tab });
-        return;
-      }
+      await keepAliveDelay(500);
+      state = await requestContentScriptState(tab.id);
+      if (state) { handleContentScriptState(state, { tab }); return; }
     } catch { /* injection failed */ }
 
     // Last resort: build a minimal state from the tab's URL and title
