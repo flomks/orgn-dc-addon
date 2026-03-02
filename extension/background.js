@@ -172,6 +172,10 @@ async function updateActivity(state) {
     // Write to storage (popup reads this)
     await chrome.storage.local.set({ orgnLastDetails: details, orgnLastState: activityState });
 
+    // Ensure WebSocket is connected before sending.
+    // The service worker may have been asleep and lost the connection.
+    await ensureConnected();
+
     // Send to desktop app
     const activity = {
       details: displayDetails, state: displayState,
