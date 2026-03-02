@@ -156,8 +156,10 @@ async function updateActivity(state) {
       activityState = parts.join(' / ') || 'ORGN CDE';
     }
 
-    // Deduplicate
-    const stateKey = details + '|' + activityState + '|' + (smallImageText || '');
+    // Deduplicate -- include the page URL so switching between two tabs
+    // that produce the same activity strings still triggers an update.
+    const pageUrl = (state.url && state.url.url) || '';
+    const stateKey = pageUrl + '|' + details + '|' + activityState + '|' + (smallImageText || '');
     if (stateKey === lastOrgnState && desktopAppConnected) return;
     lastOrgnState = stateKey;
 
@@ -209,10 +211,23 @@ async function checkOrgnTabsExist() {
 
 // ── Active Tab Refresh ─────────────────────────────────────────────
 // When the user switches tabs or a page finishes loading, ask the
-// content script on the new active tab for fresh state.  This is the
-// ONLY way the background learns about tab switches (the CS only sends
-// updates when its own state hash changes, which doesn't happen on
-// a tab switch since the page itself didn't change).
+// content script on the new active tab for fresh state.
+//
+// Chrome freezes inactive tabs (Tab Throttling).  When a frozen tab
+// is activated, its JS context takes a moment to "thaw" before it can
+// respond to messages.  We therefore retry several times with short
+// delays before falling back to re-injection or URL-based state.
+
+function requestContentScriptState(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { type: 'requestState' }, (resp) => {
+        if (chrome.runtime.lastError || !resp?.state) resolve(null);
+        else resolve(resp.state);
+      });
+    } catch { resolve(null); }
+  });
+}
 
 async function refreshActiveTab() {
   try {
@@ -223,27 +238,129 @@ async function refreshActiveTab() {
     try { hostname = new URL(tab.url).hostname; } catch { return; }
     if (!isOrgnDomain(hostname)) return;
 
-    chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, async (resp) => {
-      if (!chrome.runtime.lastError && resp?.state) {
-        handleContentScriptState(resp.state, { tab });
+    // Retry up to 3 times with increasing delays to let frozen tabs thaw.
+    // Delays: 0ms (immediate), 300ms, 800ms -- total worst case ~1.1s
+    const delays = [0, 300, 800];
+    for (const delay of delays) {
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+      const state = await requestContentScriptState(tab.id);
+      if (state) {
+        handleContentScriptState(state, { tab });
         return;
       }
-      // Content script unreachable -- re-inject it and retry once
-      try {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-script.js'] });
-        chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (retry) => {
-          if (!chrome.runtime.lastError && retry?.state) {
-            handleContentScriptState(retry.state, { tab });
-          }
-        });
-      } catch { /* injection failed, tab may not be injectable */ }
-    });
+    }
+
+    // Content script still unreachable -- try re-injection
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-script.js'] });
+      await new Promise(r => setTimeout(r, 500));
+      const state = await requestContentScriptState(tab.id);
+      if (state) {
+        handleContentScriptState(state, { tab });
+        return;
+      }
+    } catch { /* injection failed */ }
+
+    // Last resort: build a minimal state from the tab's URL and title
+    // so Discord still updates even if the content script is completely dead.
+    const fallbackState = buildFallbackState(tab.url, tab.title || '');
+    if (fallbackState) {
+      handleContentScriptState(fallbackState, { tab });
+    }
   } catch { /* ignore */ }
+}
+
+// ── Fallback State Builder ─────────────────────────────────────────
+// Constructs a minimal state object from tab URL and title, mirroring
+// the content script's extraction logic.  Used when the CS is frozen
+// or otherwise unreachable after tab switch.
+
+function buildFallbackState(url, title) {
+  try {
+    const loc = new URL(url);
+    const segments = loc.pathname.split('/').filter(Boolean);
+    const params = Object.fromEntries(new URLSearchParams(loc.search));
+
+    const segmentAfter = (name) => {
+      const i = segments.indexOf(name);
+      return i !== -1 && segments[i + 1] ? segments[i + 1] : null;
+    };
+
+    // Determine current view
+    const pathname = loc.pathname;
+    const qTab = params.tab || null;
+    let currentView = 'other';
+    if (/\/editor\b/i.test(pathname))                   currentView = 'editor';
+    else if (/\/projects\/?$/i.test(pathname))           currentView = 'projects-list';
+    else if (/\/projects\/[^/]+\/?$/i.test(pathname))    currentView = qTab ? 'project-' + qTab : 'project-detail';
+    else if (/\/trials?\//i.test(pathname))              currentView = 'trial';
+    else if (/\/new\/?$/i.test(pathname))                currentView = 'new-project';
+    else if (/\/chat\/[^/]+/i.test(pathname))            currentView = 'chat-trial';
+    else if (/\/chat\/?$/i.test(pathname))               currentView = 'chat';
+    else if (/\/settings/i.test(pathname))               currentView = 'settings';
+    else if (pathname === '/' || pathname === '')         currentView = 'dashboard';
+
+    // Clean title (strip " · Orgn CDE" etc.)
+    const cleanTitle = title
+      .replace(/\s*[\u00B7|]\s*Orgn\s*CDE\s*$/i, '')
+      .replace(/\s+[-\u2013]\s+Orgn\s*CDE\s*$/i, '')
+      .trim();
+
+    // Project name from URL slug
+    const slug = segmentAfter('projects');
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const projectName = slug && !UUID_RE.test(slug) ? slug : null;
+
+    // Trial name from title
+    const trialMatch = cleanTitle.match(/^(.+?)\s+[-\u2013]\s+Trial$/i);
+    const trialName = trialMatch ? trialMatch[1].trim() : (segmentAfter('trials') || null);
+
+    // Build computed
+    const computed = {
+      projectName,
+      trialName,
+      activeTab: qTab,
+      activeSubtab: params.subtab || null,
+      gitBranch: null,
+      language: null
+    };
+
+    if (currentView === 'chat-trial') {
+      computed.activity = 'chat-trial';
+      computed.activityTarget = cleanTitle || 'Chat';
+    } else if (qTab) {
+      const TAB_LABELS = { tasks: 'Viewing Tasks', context: 'Viewing Context', explorer: 'Browsing Files',
+        features: 'Viewing Features', security: 'Viewing Security', integrations: 'Viewing Integrations',
+        usage: 'Viewing Usage', settings: 'Project Settings' };
+      computed.activity = 'tab';
+      computed.activityTarget = TAB_LABELS[qTab] || ('Viewing ' + qTab.charAt(0).toUpperCase() + qTab.slice(1));
+    } else {
+      computed.activity = 'browsing';
+      computed.activityTarget = currentView || 'page';
+    }
+
+    return {
+      timestamp: Date.now(),
+      url: { url, hostname: loc.hostname, pathname: loc.pathname },
+      title: { raw: title, clean: cleanTitle, parts: {} },
+      orgn: { currentView, projectName, trialName, trialStatus: null, isIDE: false, ideType: null, activeTab: qTab, activeSubtab: params.subtab || null },
+      computed,
+      editor: { hasEditor: false },
+      statusBar: { visible: false },
+      meta: {},
+      _fallback: true
+    };
+  } catch { return null; }
 }
 
 // ── Event Listeners ────────────────────────────────────────────────
 
-chrome.tabs.onActivated?.addListener(() => refreshActiveTab());
+chrome.tabs.onActivated?.addListener(() => {
+  // Always clear dedup cache on tab switch so the new tab's state goes through,
+  // even if it produces the same stateKey as the previous tab.
+  lastOrgnState = null;
+  refreshActiveTab();
+});
 chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
   if ((info.status === 'complete' || info.title) && tab.active) refreshActiveTab();
 });
