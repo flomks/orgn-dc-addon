@@ -198,8 +198,35 @@ async function checkOrgnTabsExist() {
   } catch { /* ignore */ }
 }
 
+// ── Active Tab Refresh ─────────────────────────────────────────────
+// When the user switches tabs or a page finishes loading, ask the
+// content script on the new active tab for fresh state.  This is the
+// ONLY way the background learns about tab switches (the CS only sends
+// updates when its own state hash changes, which doesn't happen on
+// a tab switch since the page itself didn't change).
+
+async function refreshActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url) return;
+
+    let hostname;
+    try { hostname = new URL(tab.url).hostname; } catch { return; }
+    if (!isOrgnDomain(hostname)) return;
+
+    chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (resp) => {
+      if (chrome.runtime.lastError || !resp?.state) return;
+      handleContentScriptState(resp.state, { tab });
+    });
+  } catch { /* ignore */ }
+}
+
 // ── Event Listeners ────────────────────────────────────────────────
 
+chrome.tabs.onActivated?.addListener(() => refreshActiveTab());
+chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
+  if ((info.status === 'complete' || info.title) && tab.active) refreshActiveTab();
+});
 chrome.tabs.onRemoved?.addListener(() => setTimeout(checkOrgnTabsExist, 500));
 
 // ── Message Router ─────────────────────────────────────────────────
