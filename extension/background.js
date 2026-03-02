@@ -17,6 +17,7 @@ const STALE_SESSION_MS = 2 * 60 * 1000;
 let ws = null;
 let desktopAppConnected = false;
 let lastOrgnState = null;
+let activeTabId = null;
 
 // ── View Labels ────────────────────────────────────────────────────
 
@@ -117,8 +118,12 @@ async function ensureSession() {
 
 function handleContentScriptState(state, sender) {
   if (!state) return;
-  chrome.storage.local.set({ orgnContentScriptState: { ...state, receivedAt: Date.now(), tabId: sender?.tab?.id || null } });
-  updateActivity(state);
+  const tabId = sender?.tab?.id || null;
+  if (tabId) activeTabId = tabId;
+  // Tag the tabId onto the state so updateActivity can include it in dedup
+  const taggedState = { ...state, _tabId: tabId };
+  chrome.storage.local.set({ orgnContentScriptState: { ...state, receivedAt: Date.now(), tabId } });
+  updateActivity(taggedState);
 }
 
 async function updateActivity(state) {
@@ -156,10 +161,11 @@ async function updateActivity(state) {
       activityState = parts.join(' / ') || 'ORGN CDE';
     }
 
-    // Deduplicate -- include the page URL so switching between two tabs
-    // that produce the same activity strings still triggers an update.
+    // Deduplicate -- include page URL AND tab ID so switching between
+    // two tabs (even with identical URLs) always triggers an update.
     const pageUrl = (state.url && state.url.url) || '';
-    const stateKey = pageUrl + '|' + details + '|' + activityState + '|' + (smallImageText || '');
+    const tabId = state._tabId || activeTabId || '';
+    const stateKey = tabId + '|' + pageUrl + '|' + details + '|' + activityState + '|' + (smallImageText || '');
     if (stateKey === lastOrgnState && desktopAppConnected) return;
     lastOrgnState = stateKey;
 
@@ -244,8 +250,13 @@ function keepAliveDelay(ms) {
 
 async function refreshActiveTab() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Query across all windows -- lastFocusedWindow ensures we get the
+    // tab the user is actually looking at, even after a window switch.
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab?.id || !tab.url) return;
+
+    // Track which tab is currently active for dedup purposes
+    activeTabId = tab.id;
 
     let hostname;
     try { hostname = new URL(tab.url).hostname; } catch { return; }
@@ -367,14 +378,29 @@ function buildFallbackState(url, title) {
 
 // ── Event Listeners ────────────────────────────────────────────────
 
-chrome.tabs.onActivated?.addListener(() => {
+chrome.tabs.onActivated?.addListener((activeInfo) => {
   // Always clear dedup cache on tab switch so the new tab's state goes through,
   // even if it produces the same stateKey as the previous tab.
   lastOrgnState = null;
+  activeTabId = activeInfo?.tabId || null;
   refreshActiveTab();
 });
+
+// When the user switches between browser windows, onActivated does NOT fire
+// because the active tab within each window hasn't changed. We must listen
+// for window focus changes and re-query the now-active tab.
+chrome.windows?.onFocusChanged?.addListener((windowId) => {
+  // windowId === chrome.windows.WINDOW_ID_NONE means all windows lost focus
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  lastOrgnState = null;
+  refreshActiveTab();
+});
+
 chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
-  if ((info.status === 'complete' || info.title) && tab.active) refreshActiveTab();
+  if ((info.status === 'complete' || info.title) && tab.active) {
+    activeTabId = tab.id || null;
+    refreshActiveTab();
+  }
 });
 chrome.tabs.onRemoved?.addListener(() => setTimeout(checkOrgnTabsExist, 500));
 

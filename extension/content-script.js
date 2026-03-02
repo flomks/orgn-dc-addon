@@ -17,7 +17,7 @@
   // ── Version guard ────────────────────────────────────────────────
   // Prevents double-injection within the same version while allowing
   // re-injection after extension updates.
-  const SCRIPT_VERSION = 7;
+  const SCRIPT_VERSION = 8;
   if (window.__orgnBridgeVersion === SCRIPT_VERSION) return;
   window.__orgnBridgeVersion = SCRIPT_VERSION;
 
@@ -553,6 +553,28 @@
     mutationObserver.observe(document.documentElement, {
       childList: true, subtree: true, attributes: true,
       attributeFilter: ['class', 'title', 'data-project', 'data-trial']
+    });
+
+    // ── Visibility change ───────────────────────────────────────
+    // When the user switches back to this tab (from another tab or
+    // window), the browser fires visibilitychange with "visible".
+    // Chrome throttles timers in background tabs to ~1/min, so the
+    // extraction interval may not have run while hidden.  Clear the
+    // hash and force an immediate extraction + send so the background
+    // service worker gets fresh state for this tab right away.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        lastStateHash = '';
+        runExtraction();
+      }
+    });
+
+    // ── Window focus ────────────────────────────────────────────
+    // Additional safety net: browsers may not always fire
+    // visibilitychange when switching between overlapping windows.
+    window.addEventListener('focus', () => {
+      lastStateHash = '';
+      runExtraction();
     });
   }
 
