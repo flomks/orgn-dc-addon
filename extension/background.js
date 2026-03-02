@@ -599,9 +599,38 @@ async function handlePopupMessage(message) {
     }
 
     case 'forceRefreshState': {
-      // Force re-parse of the active tab without resetting the session timer.
-      // This ensures the popup always sees freshly parsed data.
-      lastOrgnState = null; // clear cache so checkActiveTab always writes
+      // Force a fresh state by asking the content script directly,
+      // then running the enriched activity builder.
+      // Falls back to parseOrgnPage if content script is unreachable.
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          // Try to get fresh state from content script
+          const csState = await new Promise((resolve) => {
+            chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (response) => {
+              if (chrome.runtime.lastError) resolve(null);
+              else resolve(response?.state || null);
+            });
+          });
+
+          if (csState) {
+            // Run the enriched content script pipeline
+            handleContentScriptState(csState, { tab });
+            // Read the freshly written values
+            const refreshed = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
+            return {
+              success: true,
+              details: refreshed.orgnLastDetails || null,
+              state: refreshed.orgnLastState || null
+            };
+          }
+        }
+      } catch (e) {
+        // Content script not available, fall through to tab-title parse
+      }
+
+      // Fallback: simple tab-title parse
+      lastOrgnState = null;
       await checkActiveTab();
       const refreshed = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
       return {
