@@ -1,6 +1,6 @@
 #!/bin/bash
 # ORGN Discord Bridge - Quick Start
-# Startet die Electron Desktop App im Entwicklungsmodus
+# Starts the Electron Desktop App in development mode
 
 echo "Starting ORGN Discord Bridge..."
 echo ""
