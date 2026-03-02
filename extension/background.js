@@ -1,14 +1,12 @@
 /**
  * Background Service Worker -- ORGN Discord Bridge
  *
- * Single source of truth for Discord Rich Presence activity.
- * Priority: content script state > tab-title fallback.
+ * The content script is the SOLE source of activity state.
+ * This worker handles: WebSocket to desktop app, session management,
+ * keepalive, and message routing between popup/content script.
  *
- * Architecture:
- *   - Keepalive alarm every 25s: reconnect WebSocket + heartbeat
- *   - Content script sends rich state via 'contentScriptState' messages
- *   - Tab-title fallback only runs when NO content script state exists
- *   - Popup reads activity from chrome.storage.local
+ * There is NO tab-title fallback parser. If the content script is not
+ * running, no activity is shown -- which is the correct behavior.
  */
 
 const WS_URL = 'ws://127.0.0.1:7890';
@@ -19,10 +17,8 @@ const STALE_SESSION_MS = 2 * 60 * 1000;
 let ws = null;
 let desktopAppConnected = false;
 let lastOrgnState = null;
-let lastContentScriptState = null;
 
 // ── View Labels ────────────────────────────────────────────────────
-// Shared map for converting currentView -> display string.
 
 const VIEW_LABELS = {
   'dashboard': 'Viewing Dashboard',
@@ -53,7 +49,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   await chrome.storage.local.set({ orgnLastHeartbeat: Date.now() });
   await ensureConnected();
-  await checkActiveTab();
 });
 
 // ── WebSocket ──────────────────────────────────────────────────────
@@ -112,16 +107,16 @@ async function ensureSession() {
   return start;
 }
 
-// ── Content Script State (primary source) ──────────────────────────
+// ── Content Script State Handler ───────────────────────────────────
+// This is the ONLY path that writes activity to storage and Discord.
 
 function handleContentScriptState(state, sender) {
   if (!state) return;
-  lastContentScriptState = { ...state, receivedAt: Date.now(), tabId: sender?.tab?.id || null };
-  chrome.storage.local.set({ orgnContentScriptState: lastContentScriptState });
-  updateActivityFromContentScript(state);
+  chrome.storage.local.set({ orgnContentScriptState: { ...state, receivedAt: Date.now(), tabId: sender?.tab?.id || null } });
+  updateActivity(state);
 }
 
-async function updateActivityFromContentScript(state) {
+async function updateActivity(state) {
   try {
     if (await isTrackingPaused()) return;
 
@@ -148,7 +143,6 @@ async function updateActivityFromContentScript(state) {
       details = VIEW_LABELS[orgn.currentView] || 'Browsing';
     }
 
-    // Build state string (skip for chat-trial -- already set above)
     if (computed.activity !== 'chat-trial') {
       const parts = [];
       if (computed.projectName) parts.push(computed.projectName);
@@ -175,8 +169,10 @@ async function updateActivityFromContentScript(state) {
       displayState = 'VibeCoding';
     }
 
+    // Write to storage (popup reads this)
     await chrome.storage.local.set({ orgnLastDetails: details, orgnLastState: activityState });
 
+    // Send to desktop app
     const activity = {
       details: displayDetails, state: displayState,
       startTimestamp: sessionStart, largeImageKey: 'orgn', largeImageText: 'ORGN CDE', instance: false
@@ -184,78 +180,7 @@ async function updateActivityFromContentScript(state) {
     if (smallImageText && !hideNames) activity.smallImageText = smallImageText;
     send({ type: 'setActivity', activity });
   } catch (e) {
-    console.warn('[ORGN] Error updating from content script:', e);
-  }
-}
-
-// ── Tab-Title Fallback (secondary source) ──────────────────────────
-// Only used when content script has not sent state recently.
-
-function parseOrgnPage(title, url) {
-  const result = { details: '', state: '' };
-  if (!title) return result;
-
-  const clean = title
-    .replace(/\s*[\u00B7|]\s*Orgn CDE\s*$/i, '')
-    .replace(/\s+[-\u2013]\s+Orgn CDE\s*$/i, '')
-    .trim();
-
-  if (!clean || clean.toLowerCase() === 'orgn cde') return { details: 'Dashboard', state: 'Browsing' };
-
-  const trialMatch = clean.match(/^(.+?)\s+[-\u2013]\s+Trial$/i);
-  if (trialMatch) return { details: 'Working on Trial', state: trialMatch[1].trim() };
-
-  const sepMatch = clean.match(/^(.+?)\s+[-\u2013]\s+(.+)$/);
-  if (sepMatch) return { details: sepMatch[1].trim(), state: sepMatch[2].trim() };
-
-  try {
-    if (new URL(url).pathname.includes('/projects/')) return { details: clean, state: 'Viewing Project' };
-  } catch { /* ignore */ }
-
-  return { details: clean, state: 'Browsing' };
-}
-
-async function checkActiveTab() {
-  try {
-    if (await isTrackingPaused()) return;
-
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url) return;
-
-    let hostname;
-    try { hostname = new URL(tab.url).hostname; } catch { return; }
-    if (!isOrgnDomain(hostname)) return;
-
-    // Defer to content script if it sent state recently (< 30s)
-    if (lastContentScriptState) {
-      const age = Date.now() - (lastContentScriptState.receivedAt || 0);
-      if (age < 30000) return;
-    }
-
-    const parsed = parseOrgnPage(tab.title, tab.url);
-    const stateKey = parsed.details + '|' + parsed.state;
-    if (stateKey === lastOrgnState && desktopAppConnected) return;
-    lastOrgnState = stateKey;
-
-    const sessionStart = await ensureSession();
-    const hideNames = (await chrome.storage.sync.get(['hideNames'])).hideNames === true;
-
-    let displayDetails = parsed.details || 'ORGN CDE';
-    let displayState = parsed.state || 'Active';
-
-    if (hideNames) {
-      const safe = ['Dashboard', 'Projects', 'Browsing', 'Active', 'Working on Trial', 'Viewing Project', 'New Project'];
-      if (!safe.includes(parsed.state)) displayState = 'VibeCoding';
-      if (!safe.includes(parsed.details)) displayDetails = 'VibeCoding';
-    }
-
-    await chrome.storage.local.set({ orgnLastDetails: parsed.details, orgnLastState: parsed.state });
-    send({
-      type: 'setActivity',
-      activity: { details: displayDetails, state: displayState, startTimestamp: sessionStart, largeImageKey: 'orgn', largeImageText: 'ORGN CDE', instance: false }
-    });
-  } catch (e) {
-    console.warn('[ORGN] Error checking tab:', e);
+    console.warn('[ORGN] Error updating activity:', e);
   }
 }
 
@@ -275,10 +200,6 @@ async function checkOrgnTabsExist() {
 
 // ── Event Listeners ────────────────────────────────────────────────
 
-chrome.tabs.onActivated?.addListener(() => checkActiveTab());
-chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
-  if ((info.status === 'complete' || info.title) && tab.active) checkActiveTab();
-});
 chrome.tabs.onRemoved?.addListener(() => setTimeout(checkOrgnTabsExist, 500));
 
 // ── Message Router ─────────────────────────────────────────────────
@@ -327,7 +248,7 @@ async function handleMessage(msg) {
     }
 
     case 'forceRefreshState': {
-      // Ask content script directly for fresh state, run through enriched pipeline
+      // Ask content script directly, run through the activity pipeline
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
@@ -339,14 +260,9 @@ async function handleMessage(msg) {
           });
           if (csState) {
             handleContentScriptState(csState, { tab });
-            const r = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
-            return { success: true, details: r.orgnLastDetails || null, state: r.orgnLastState || null };
           }
         }
-      } catch { /* fall through */ }
-      // Fallback to tab-title parse
-      lastOrgnState = null;
-      await checkActiveTab();
+      } catch { /* ignore */ }
       const r = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
       return { success: true, details: r.orgnLastDetails || null, state: r.orgnLastState || null };
     }
@@ -355,7 +271,6 @@ async function handleMessage(msg) {
       const start = Date.now();
       lastOrgnState = null;
       await chrome.storage.local.set({ orgnSessionStart: start });
-      checkActiveTab();
       return { success: true, orgnSessionStart: start };
     }
 
@@ -369,7 +284,6 @@ async function handleMessage(msg) {
       await chrome.storage.sync.set({ trackingPaused: false });
       lastOrgnState = null;
       setBadge('', '#22c55e');
-      checkActiveTab();
       return { success: true };
 
     default:
@@ -405,4 +319,4 @@ async function clearStaleSession() {
 
 // ── Startup ────────────────────────────────────────────────────────
 
-clearStaleSession().then(() => ensureConnected()).then(() => checkActiveTab());
+clearStaleSession().then(() => ensureConnected());
