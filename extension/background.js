@@ -226,11 +226,11 @@ async function checkActiveTab() {
     try { hostname = new URL(tab.url).hostname; } catch { return; }
     if (!isOrgnDomain(hostname)) return;
 
-    // Defer to content script if it sent state recently (< 30s)
-    if (lastContentScriptState) {
-      const age = Date.now() - (lastContentScriptState.receivedAt || 0);
-      if (age < 30000) return;
-    }
+    // If a content script has EVER reported state for this session,
+    // always defer to it.  The content script has richer data (DOM access,
+    // query params, chat-trial detection) than the simple title parser.
+    // The tab-title fallback only runs when no content script exists at all.
+    if (lastContentScriptState) return;
 
     const parsed = parseOrgnPage(tab.title, tab.url);
     const stateKey = parsed.details + '|' + parsed.state;
@@ -275,7 +275,11 @@ async function checkOrgnTabsExist() {
 
 // ── Event Listeners ────────────────────────────────────────────────
 
-chrome.tabs.onActivated?.addListener(() => checkActiveTab());
+chrome.tabs.onActivated?.addListener(() => {
+  // Reset content script state on tab switch -- the new tab's CS will send its own
+  lastContentScriptState = null;
+  checkActiveTab();
+});
 chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
   if ((info.status === 'complete' || info.title) && tab.active) checkActiveTab();
 });
