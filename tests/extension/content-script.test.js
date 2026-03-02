@@ -31,9 +31,9 @@ function detectLanguageFromFilename(filename) {
     '.php': 'PHP', '.swift': 'Swift', '.dart': 'Dart',
     '.r': 'R', '.jl': 'Julia', '.lua': 'Lua', '.zig': 'Zig',
     '.tf': 'Terraform', '.hcl': 'HCL',
-    '.proto': 'Protocol Buffers', '.wasm': 'WebAssembly',
+    '.proto': 'Protocol Buffers',
     '.env': 'Environment', '.gitignore': 'Git Ignore',
-    '.lock': 'Lock File', '.config': 'Config'
+    '.dockerfile': 'Dockerfile', '.docker': 'Docker'
   };
 
   const lowerName = filename.toLowerCase();

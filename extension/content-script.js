@@ -17,13 +17,12 @@
   // ── Version guard ────────────────────────────────────────────────
   // Prevents double-injection within the same version while allowing
   // re-injection after extension updates.
-  const SCRIPT_VERSION = 5;
+  const SCRIPT_VERSION = 6;
   if (window.__orgnBridgeVersion === SCRIPT_VERSION) return;
   window.__orgnBridgeVersion = SCRIPT_VERSION;
 
   // ── Constants ────────────────────────────────────────────────────
   const EXTRACT_INTERVAL_MS = 3000;
-  const LOG_PREFIX = '[ORGN Bridge]';
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const GENERIC_TITLES = /^(projects?|dashboard|settings|new|orgn cde|new project|chat)$/i;
   const SPACED_SEPARATOR = /^(.+?)\s+[-\u2013]\s+(.+)$/;
@@ -276,11 +275,9 @@
         const t = item.textContent?.trim();
         if (t) state.items.push(t);
       });
-      state.git = textOf.call(null,
-        '[class*="git"], [class*="branch"], [aria-label*="branch"], [title*="branch"]'
-      );
-      state.encoding = textOf.call(null, '[class*="encoding"], [aria-label*="encoding"]');
-      state.language = textOf.call(null, '[class*="mode"], [class*="language"], [aria-label*="language"]');
+      state.git = textOf('[class*="git"], [class*="branch"], [aria-label*="branch"], [title*="branch"]');
+      state.encoding = textOf('[class*="encoding"], [aria-label*="encoding"]');
+      state.language = textOf('[class*="mode"], [class*="language"], [aria-label*="language"]');
     }
 
     state.notifications = document.querySelectorAll('.notification, [class*="notification-count"], .badge').length;
@@ -516,7 +513,7 @@
         sendToBackground(state);
       }
     } catch (e) {
-      console.warn(LOG_PREFIX, 'Extraction error:', e.message);
+      console.warn('[ORGN Bridge] Extraction error:', e.message);
     }
   }
 
