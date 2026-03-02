@@ -1,630 +1,367 @@
-// Content Script - ORGN CDE Website State Extractor
-// Runs directly on ORGN CDE pages to extract rich activity data
-// for Discord Rich Presence states.
-
+/**
+ * ORGN CDE Content Script -- Website State Extractor
+ *
+ * Runs on ORGN CDE pages to extract rich activity data for Discord Rich
+ * Presence.  Communicates with the background service worker via
+ * chrome.runtime messaging.
+ *
+ * Architecture:
+ *   1. Periodic extraction (every EXTRACT_INTERVAL_MS)
+ *   2. MutationObserver for real-time DOM/title changes
+ *   3. On-demand extraction via 'requestState' / 'getDiagnostics' messages
+ *   4. Only sends updates to background when state hash changes
+ */
 (function () {
   'use strict';
 
-  // Version-gated guard: prevents double-injection within the same version,
-  // but allows re-injection after extension updates (new SCRIPT_VERSION).
-  const SCRIPT_VERSION = 4;
-  if (window.__orgnBridgeContentScriptVersion === SCRIPT_VERSION) return;
-  window.__orgnBridgeContentScriptVersion = SCRIPT_VERSION;
+  // ── Version guard ────────────────────────────────────────────────
+  // Prevents double-injection within the same version while allowing
+  // re-injection after extension updates.
+  const SCRIPT_VERSION = 5;
+  if (window.__orgnBridgeVersion === SCRIPT_VERSION) return;
+  window.__orgnBridgeVersion = SCRIPT_VERSION;
 
-  const EXTRACT_INTERVAL_MS = 3000; // Re-extract every 3 seconds
-  const DEBUG_MODE = true; // Enable console logging for diagnostics
+  // ── Constants ────────────────────────────────────────────────────
+  const EXTRACT_INTERVAL_MS = 3000;
+  const LOG_PREFIX = '[ORGN Bridge]';
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const GENERIC_TITLES = /^(projects?|dashboard|settings|new|orgn cde|new project|chat)$/i;
+  const SPACED_SEPARATOR = /^(.+?)\s+[-\u2013]\s+(.+)$/;
 
+  // ── Mutable state ────────────────────────────────────────────────
   let lastStateHash = '';
   let extractionInterval = null;
   let mutationObserver = null;
 
-  // ── Logging ──────────────────────────────────────────────────────
+  // ── Language map ─────────────────────────────────────────────────
+  const LANGUAGE_MAP = {
+    '.js': 'JavaScript', '.jsx': 'React JSX', '.ts': 'TypeScript', '.tsx': 'React TSX',
+    '.py': 'Python', '.rb': 'Ruby', '.go': 'Go', '.rs': 'Rust',
+    '.java': 'Java', '.kt': 'Kotlin', '.scala': 'Scala',
+    '.c': 'C', '.cpp': 'C++', '.h': 'C Header', '.hpp': 'C++ Header',
+    '.cs': 'C#', '.fs': 'F#',
+    '.html': 'HTML', '.css': 'CSS', '.scss': 'SCSS', '.less': 'LESS',
+    '.json': 'JSON', '.yaml': 'YAML', '.yml': 'YAML', '.toml': 'TOML',
+    '.xml': 'XML', '.svg': 'SVG',
+    '.md': 'Markdown', '.mdx': 'MDX', '.txt': 'Plain Text',
+    '.sh': 'Shell', '.bash': 'Bash', '.zsh': 'Zsh',
+    '.ps1': 'PowerShell', '.bat': 'Batch',
+    '.sql': 'SQL', '.graphql': 'GraphQL', '.gql': 'GraphQL',
+    '.vue': 'Vue', '.svelte': 'Svelte', '.astro': 'Astro',
+    '.php': 'PHP', '.swift': 'Swift', '.dart': 'Dart',
+    '.r': 'R', '.jl': 'Julia', '.lua': 'Lua', '.zig': 'Zig',
+    '.tf': 'Terraform', '.hcl': 'HCL', '.proto': 'Protocol Buffers',
+    '.env': 'Environment', '.gitignore': 'Git Ignore',
+    '.dockerfile': 'Dockerfile', '.docker': 'Docker'
+  };
 
-  function log(...args) {
-    if (DEBUG_MODE) {
-      console.log('[ORGN-Bridge Content]', ...args);
-    }
+  const SPECIAL_FILENAMES = {
+    'dockerfile': 'Dockerfile',
+    'makefile': 'Makefile',
+    'jenkinsfile': 'Jenkinsfile',
+    '.gitignore': 'Git Ignore'
+  };
+
+  const TAB_LABELS = {
+    tasks: 'Viewing Tasks',
+    context: 'Viewing Context',
+    explorer: 'Browsing Files',
+    features: 'Viewing Features',
+    security: 'Viewing Security',
+    integrations: 'Viewing Integrations',
+    usage: 'Viewing Usage',
+    settings: 'Project Settings'
+  };
+
+  // ── Helpers ──────────────────────────────────────────────────────
+
+  function detectLanguage(filename) {
+    if (!filename) return null;
+    const lower = filename.toLowerCase();
+
+    // Special filenames (Dockerfile, Makefile, etc.)
+    if (SPECIAL_FILENAMES[lower]) return SPECIAL_FILENAMES[lower];
+    if (lower === '.env' || lower.startsWith('.env.')) return 'Environment';
+
+    // Extension-based lookup
+    const dot = filename.lastIndexOf('.');
+    return dot !== -1 ? (LANGUAGE_MAP[filename.slice(dot).toLowerCase()] || null) : null;
   }
 
-  function warn(...args) {
-    if (DEBUG_MODE) {
-      console.warn('[ORGN-Bridge Content]', ...args);
-    }
+  function queryFirst(selectors) {
+    return document.querySelector(selectors);
   }
 
-  // ── URL Analysis ─────────────────────────────────────────────────
+  function textOf(selectors) {
+    const el = queryFirst(selectors);
+    return el?.textContent?.trim() || null;
+  }
 
-  function extractUrlInfo() {
-    const url = window.location.href;
-    const pathname = window.location.pathname;
-    const hostname = window.location.hostname;
-    const searchParams = Object.fromEntries(new URLSearchParams(window.location.search));
-    const hash = window.location.hash;
+  // ── URL Extraction ───────────────────────────────────────────────
 
-    // Parse path segments: e.g. /projects/my-project/trials/abc123
-    const segments = pathname.split('/').filter(Boolean);
-    const pathInfo = {
-      full: pathname,
-      segments,
-      segmentCount: segments.length
+  function extractUrl() {
+    const loc = window.location;
+    const params = Object.fromEntries(new URLSearchParams(loc.search));
+    const segments = loc.pathname.split('/').filter(Boolean);
+
+    // Route detection
+    const route = {};
+    const segmentAfter = (name) => {
+      const i = segments.indexOf(name);
+      return i !== -1 && segments[i + 1] ? segments[i + 1] : null;
     };
 
-    // Try to extract known ORGN CDE route patterns
-    const routeInfo = {};
-
-    // Project detection from URL
-    const projectIdx = segments.indexOf('projects');
-    if (projectIdx !== -1 && segments[projectIdx + 1]) {
-      routeInfo.projectSlug = segments[projectIdx + 1];
-    }
-
-    // Trial detection from URL
-    const trialIdx = segments.indexOf('trials');
-    if (trialIdx !== -1 && segments[trialIdx + 1]) {
-      routeInfo.trialId = segments[trialIdx + 1];
-    }
-
-    // Workspace detection from URL
-    const workspaceIdx = segments.indexOf('workspaces');
-    if (workspaceIdx !== -1 && segments[workspaceIdx + 1]) {
-      routeInfo.workspaceId = segments[workspaceIdx + 1];
-    }
-
-    // Editor/IDE detection from URL
-    const editorIdx = segments.indexOf('editor');
-    if (editorIdx !== -1) {
-      routeInfo.isEditor = true;
-    }
-
-    // Settings detection
-    const settingsIdx = segments.indexOf('settings');
-    if (settingsIdx !== -1) {
-      routeInfo.isSettings = true;
-    }
-
-    // New project page
-    if (segments.includes('new')) {
-      routeInfo.isNewProject = true;
-    }
-
-    // Chat page: /chat/{trialId}
-    const chatIdx = segments.indexOf('chat');
-    if (chatIdx !== -1) {
-      routeInfo.isChat = true;
-      if (segments[chatIdx + 1]) {
-        routeInfo.chatTrialId = segments[chatIdx + 1];
-      }
-    }
-
-    // Query parameter based navigation (ORGN CDE uses ?tab=...&subtab=...)
-    // These indicate which sub-view is active within a page
-    if (searchParams.tab) {
-      routeInfo.activeTab = searchParams.tab;
-    }
-    if (searchParams.subtab) {
-      routeInfo.activeSubtab = searchParams.subtab;
-    }
+    route.projectSlug = segmentAfter('projects');
+    route.trialId = segmentAfter('trials');
+    route.workspaceId = segmentAfter('workspaces');
+    route.chatTrialId = segmentAfter('chat');
+    route.isEditor = segments.includes('editor');
+    route.isSettings = segments.includes('settings');
+    route.isNewProject = segments.includes('new');
+    route.isChat = segments.includes('chat');
+    route.activeTab = params.tab || null;
+    route.activeSubtab = params.subtab || null;
 
     return {
-      url,
-      hostname,
-      pathname,
-      hash,
-      searchParams,
-      pathInfo,
-      routeInfo
+      url: loc.href,
+      hostname: loc.hostname,
+      pathname: loc.pathname,
+      hash: loc.hash,
+      searchParams: params,
+      pathInfo: { full: loc.pathname, segments, segmentCount: segments.length },
+      routeInfo: route
     };
   }
 
-  // ── Title Analysis ───────────────────────────────────────────────
+  // ── Title Extraction ─────────────────────────────────────────────
 
-  function extractTitleInfo() {
-    const rawTitle = document.title;
+  function extractTitle() {
+    const raw = document.title;
 
-    // Remove common suffixes like " · Orgn CDE", " | Orgn CDE", " - Orgn CDE"
-    // Use \s+ (require space) before dash to avoid matching hyphens inside names
-    const cleanTitle = rawTitle
-      .replace(/\s*[·|]\s*Orgn\s*CDE\s*$/i, '')
-      .replace(/\s+[-–]\s+Orgn\s*CDE\s*$/i, '')
+    // Strip platform suffix -- require spaces around dashes to preserve
+    // hyphenated names like "orgn-dc-addon"
+    const clean = raw
+      .replace(/\s*[\u00B7|]\s*Orgn\s*CDE\s*$/i, '')
+      .replace(/\s+[-\u2013]\s+Orgn\s*CDE\s*$/i, '')
       .trim();
 
-    // Try to parse structured titles
-    // IMPORTANT: Only split on " - " or " – " (with spaces), NOT bare hyphens.
-    // Bare hyphens are part of names like "orgn-dc-addon".
     const parts = {};
-
-    // Pattern: "trial name - Trial · Orgn CDE"  (space-dash-space before "Trial")
-    const trialMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+Trial$/i);
+    const trialMatch = clean.match(/^(.+?)\s+[-\u2013]\s+Trial$/i);
     if (trialMatch) {
       parts.trialName = trialMatch[1].trim();
       parts.pageType = 'trial';
+    } else {
+      const sepMatch = clean.match(SPACED_SEPARATOR);
+      if (sepMatch) {
+        parts.primary = sepMatch[1].trim();
+        parts.secondary = sepMatch[2].trim();
+      }
     }
 
-    // Pattern: "section - subsection"  (space-dash-space separator)
-    // This should NOT split "orgn-dc-addon" (no spaces around the hyphens)
-    const sepMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+(.+)$/);
-    if (sepMatch && !parts.pageType) {
-      parts.primary = sepMatch[1].trim();
-      parts.secondary = sepMatch[2].trim();
-    }
-
-    return {
-      raw: rawTitle,
-      clean: cleanTitle,
-      parts
-    };
+    return { raw, clean, parts };
   }
 
-  // ── Meta Tags ────────────────────────────────────────────────────
+  // ── Meta Extraction ──────────────────────────────────────────────
 
-  function extractMetaTags() {
-    const meta = {};
-
-    // Standard meta tags
-    const metaTags = document.querySelectorAll('meta');
-    metaTags.forEach(tag => {
+  function extractMeta() {
+    const all = {};
+    document.querySelectorAll('meta').forEach(tag => {
       const name = tag.getAttribute('name') || tag.getAttribute('property');
       const content = tag.getAttribute('content');
-      if (name && content) {
-        meta[name] = content;
-      }
+      if (name && content) all[name] = content;
     });
 
-    // Specific useful meta tags
     return {
-      all: meta,
-      description: meta['description'] || null,
-      ogTitle: meta['og:title'] || null,
-      ogDescription: meta['og:description'] || null,
-      ogImage: meta['og:image'] || null,
-      ogSiteName: meta['og:site-name'] || meta['og:site_name'] || null,
-      applicationName: meta['application-name'] || null,
-      themeColor: meta['theme-color'] || null,
-      viewport: meta['viewport'] || null
+      all,
+      description: all['description'] || null,
+      ogTitle: all['og:title'] || null,
+      ogDescription: all['og:description'] || null,
+      ogImage: all['og:image'] || null,
+      ogSiteName: all['og:site-name'] || all['og:site_name'] || null,
+      applicationName: all['application-name'] || null,
+      themeColor: all['theme-color'] || null
     };
   }
 
-  // ── DOM: IDE / Editor State ──────────────────────────────────────
+  // ── Editor State ─────────────────────────────────────────────────
 
-  function extractEditorState() {
-    const editorState = {
+  function extractEditor() {
+    const state = {
       hasEditor: false,
       editorType: null,
       activeFile: null,
       activeLanguage: null,
       openTabs: [],
       cursorPosition: null,
-      lineCount: null
+      isVSCodeWeb: false,
+      workspaceName: null,
+      hasTerminal: false,
+      terminalActive: false
     };
 
-    // ─── Monaco Editor Detection ───────────────────────────────
-    // Monaco is used by VS Code, Gitpod, Codespaces, etc.
-    const monacoEditor = document.querySelector('.monaco-editor');
-    if (monacoEditor) {
-      editorState.hasEditor = true;
-      editorState.editorType = 'monaco';
-
-      // Active file from tab
-      const activeTab = document.querySelector(
-        '.tab.active .label-name, ' +
-        '.tab.active .tab-label, ' +
-        '.monaco-workbench .tab.active, ' +
-        '[class*="tab"][class*="active"] [class*="label"], ' +
-        '.editor-group-container .tab.active'
+    // Monaco (VS Code, Gitpod, Codespaces)
+    if (queryFirst('.monaco-editor')) {
+      state.hasEditor = true;
+      state.editorType = 'monaco';
+      state.activeFile = textOf(
+        '.tab.active .label-name, .tab.active .tab-label, ' +
+        '[class*="tab"][class*="active"] [class*="label"]'
+      ) || textOf(
+        '.breadcrumbs-container .label-name, .monaco-breadcrumbs .label-name'
       );
-      if (activeTab) {
-        editorState.activeFile = activeTab.textContent?.trim() || null;
-      }
+      state.activeLanguage = textOf('.editor-status-mode, [class*="status"][class*="mode"]');
+      state.cursorPosition = textOf('.editor-status-cursor, [class*="status"][class*="cursor"]');
 
-      // Try to get file from breadcrumb
-      if (!editorState.activeFile) {
-        const breadcrumb = document.querySelector(
-          '.breadcrumbs-container .label-name, ' +
-          '.monaco-breadcrumbs .label-name, ' +
-          '[class*="breadcrumb"] [class*="label"]'
-        );
-        if (breadcrumb) {
-          editorState.activeFile = breadcrumb.textContent?.trim() || null;
-        }
-      }
-
-      // Language detection from Monaco
-      const langSelector = document.querySelector(
-        '.editor-status-mode, ' +
-        '[class*="status"][class*="mode"], ' +
-        '.statusbar-item [class*="language"]'
-      );
-      if (langSelector) {
-        editorState.activeLanguage = langSelector.textContent?.trim() || null;
-      }
-
-      // Open tabs
-      const tabs = document.querySelectorAll(
-        '.tab .label-name, ' +
-        '.tab .tab-label, ' +
-        '[class*="tab"]:not([class*="active"]) [class*="label"]'
-      );
-      tabs.forEach(tab => {
-        const name = tab.textContent?.trim();
-        if (name && !editorState.openTabs.includes(name)) {
-          editorState.openTabs.push(name);
-        }
+      document.querySelectorAll('.tab .label-name, .tab .tab-label').forEach(el => {
+        const name = el.textContent?.trim();
+        if (name && !state.openTabs.includes(name)) state.openTabs.push(name);
       });
+    }
 
-      // Cursor position from status bar
-      const cursorInfo = document.querySelector(
-        '.editor-status-cursor, ' +
-        '[class*="status"][class*="cursor"], ' +
-        '.statusbar-item [class*="line"]'
-      );
-      if (cursorInfo) {
-        editorState.cursorPosition = cursorInfo.textContent?.trim() || null;
+    // CodeMirror
+    const cm = queryFirst('.CodeMirror, .cm-editor');
+    if (cm && !state.hasEditor) {
+      state.hasEditor = true;
+      state.editorType = 'codemirror';
+      const langEl = cm.querySelector('[class*="language-"]');
+      if (langEl) {
+        const cls = Array.from(langEl.classList).find(c => c.startsWith('language-'));
+        if (cls) state.activeLanguage = cls.replace('language-', '');
       }
     }
 
-    // ─── CodeMirror Detection ──────────────────────────────────
-    const codeMirror = document.querySelector('.CodeMirror, .cm-editor');
-    if (codeMirror && !editorState.hasEditor) {
-      editorState.hasEditor = true;
-      editorState.editorType = 'codemirror';
-
-      // CodeMirror 6 language detection
-      const cmLang = codeMirror.querySelector('[class*="language-"]');
-      if (cmLang) {
-        const langClass = Array.from(cmLang.classList).find(c => c.startsWith('language-'));
-        if (langClass) {
-          editorState.activeLanguage = langClass.replace('language-', '');
-        }
-      }
+    // Ace
+    if (queryFirst('.ace_editor') && !state.hasEditor) {
+      state.hasEditor = true;
+      state.editorType = 'ace';
     }
 
-    // ─── Ace Editor Detection ──────────────────────────────────
-    const aceEditor = document.querySelector('.ace_editor');
-    if (aceEditor && !editorState.hasEditor) {
-      editorState.hasEditor = true;
-      editorState.editorType = 'ace';
+    // VS Code Web detection
+    if (queryFirst('.monaco-workbench, #workbench\\.parts\\.editor')) {
+      state.isVSCodeWeb = true;
+      state.workspaceName = textOf('.window-title, [class*="titlebar"] [class*="title"]');
     }
 
-    // ─── VS Code Web / code-server Detection ──────────────────
-    const vscodeWeb = document.querySelector(
-      '.monaco-workbench, ' +
-      '#workbench\\.parts\\.editor, ' +
-      '[id*="workbench"]'
-    );
-    if (vscodeWeb) {
-      editorState.isVSCodeWeb = true;
-
-      // Try to get workspace name from title bar
-      const titleBar = document.querySelector(
-        '.window-title, ' +
-        '[class*="titlebar"] [class*="title"], ' +
-        '.title-label'
-      );
-      if (titleBar) {
-        editorState.workspaceName = titleBar.textContent?.trim() || null;
-      }
+    // Terminal
+    const term = queryFirst('.xterm, .terminal, [class*="xterm"]');
+    state.hasTerminal = !!term;
+    if (term) {
+      state.terminalActive = term.classList.contains('focus') ||
+        !!term.querySelector('.xterm-focus');
     }
 
-    // ─── Generic: Xterm.js Terminal Detection ──────────────────
-    const terminal = document.querySelector('.xterm, .terminal, [class*="xterm"]');
-    editorState.hasTerminal = !!terminal;
-    if (terminal) {
-      // Check if terminal is active/focused
-      editorState.terminalActive = terminal.classList.contains('focus') ||
-        terminal.querySelector('.xterm-focus') !== null;
-    }
-
-    return editorState;
+    return state;
   }
 
-  // ── DOM: File Tree / Sidebar ─────────────────────────────────────
+  // ── Sidebar State ────────────────────────────────────────────────
 
-  function extractSidebarState() {
-    const sidebar = {
-      visible: false,
-      activePanel: null,
-      fileTreeVisible: false,
-      selectedFile: null,
-      expandedFolders: []
+  function extractSidebar() {
+    return {
+      visible: !!queryFirst('.sidebar, .explorer-viewlet, [class*="sidebar"], .activitybar'),
+      activePanel: textOf('.activitybar .action-item.checked, .activitybar .action-item.active') ||
+        queryFirst('.activitybar .action-item.checked')?.getAttribute('aria-label') || null,
+      fileTreeVisible: !!queryFirst('.explorer-folders-view, [class*="file-tree"]'),
+      selectedFile: textOf('.explorer-item.selected, [class*="tree"] [class*="selected"] [class*="label"]')
     };
-
-    // Check for sidebar/explorer visibility
-    const sidebarEl = document.querySelector(
-      '.sidebar, ' +
-      '.explorer-viewlet, ' +
-      '[class*="sidebar"], ' +
-      '[class*="explorer"], ' +
-      '.activitybar'
-    );
-    sidebar.visible = !!sidebarEl;
-
-    // Activity bar active item (Files, Search, Git, etc.)
-    const activeActivityItem = document.querySelector(
-      '.activitybar .action-item.checked, ' +
-      '.activitybar .action-item.active, ' +
-      '[class*="activitybar"] [class*="active"]'
-    );
-    if (activeActivityItem) {
-      sidebar.activePanel = activeActivityItem.getAttribute('aria-label') ||
-        activeActivityItem.getAttribute('title') ||
-        activeActivityItem.textContent?.trim() || null;
-    }
-
-    // File explorer
-    const fileTree = document.querySelector(
-      '.explorer-folders-view, ' +
-      '.tree-explorer-viewlet, ' +
-      '[class*="file-tree"], ' +
-      '[class*="explorer"][class*="tree"]'
-    );
-    sidebar.fileTreeVisible = !!fileTree;
-
-    // Selected file in explorer
-    const selectedTreeItem = document.querySelector(
-      '.explorer-item.selected, ' +
-      '.tree-explorer-viewlet .selected .label-name, ' +
-      '[class*="tree"] [class*="selected"] [class*="label"]'
-    );
-    if (selectedTreeItem) {
-      sidebar.selectedFile = selectedTreeItem.textContent?.trim() || null;
-    }
-
-    return sidebar;
   }
 
-  // ── DOM: Status Bar / Bottom Bar ─────────────────────────────────
+  // ── Status Bar ───────────────────────────────────────────────────
 
-  function extractStatusBarInfo() {
-    const statusBar = {
-      visible: false,
-      items: [],
-      git: null,
-      encoding: null,
-      lineEnding: null,
-      indentation: null,
-      language: null,
-      notifications: 0
-    };
+  function extractStatusBar() {
+    const el = queryFirst('.statusbar, [class*="statusbar"], [class*="status-bar"]');
+    const state = { visible: !!el, items: [], git: null, encoding: null, language: null, notifications: 0 };
 
-    const statusBarEl = document.querySelector(
-      '.statusbar, ' +
-      '[class*="statusbar"], ' +
-      '[class*="status-bar"]'
-    );
-    statusBar.visible = !!statusBarEl;
-
-    if (statusBarEl) {
-      // Collect all status bar items
-      const items = statusBarEl.querySelectorAll(
-        '.statusbar-item, ' +
-        '[class*="status-item"], ' +
-        '[class*="statusbar"] > *'
-      );
-      items.forEach(item => {
-        const text = item.textContent?.trim();
-        if (text) {
-          statusBar.items.push(text);
-        }
+    if (el) {
+      el.querySelectorAll('.statusbar-item, [class*="status-item"]').forEach(item => {
+        const t = item.textContent?.trim();
+        if (t) state.items.push(t);
       });
-
-      // Git branch
-      const gitItem = statusBarEl.querySelector(
-        '[class*="git"], ' +
-        '[class*="branch"], ' +
-        '[aria-label*="branch"], ' +
-        '[title*="branch"]'
+      state.git = textOf.call(null,
+        '[class*="git"], [class*="branch"], [aria-label*="branch"], [title*="branch"]'
       );
-      if (gitItem) {
-        statusBar.git = gitItem.textContent?.trim() || null;
-      }
-
-      // Encoding
-      const encodingItem = statusBarEl.querySelector(
-        '[class*="encoding"], ' +
-        '[aria-label*="encoding"]'
-      );
-      if (encodingItem) {
-        statusBar.encoding = encodingItem.textContent?.trim() || null;
-      }
-
-      // Language mode
-      const langItem = statusBarEl.querySelector(
-        '[class*="mode"], ' +
-        '[class*="language"], ' +
-        '[aria-label*="language"]'
-      );
-      if (langItem) {
-        statusBar.language = langItem.textContent?.trim() || null;
-      }
+      state.encoding = textOf.call(null, '[class*="encoding"], [aria-label*="encoding"]');
+      state.language = textOf.call(null, '[class*="mode"], [class*="language"], [aria-label*="language"]');
     }
 
-    // Notification count
-    const notifications = document.querySelectorAll(
-      '.notification, ' +
-      '[class*="notification-count"], ' +
-      '.badge'
-    );
-    statusBar.notifications = notifications.length;
-
-    return statusBar;
+    state.notifications = document.querySelectorAll('.notification, [class*="notification-count"], .badge').length;
+    return state;
   }
 
-  // ── DOM: Page-Level UI Elements ──────────────────────────────────
+  // ── Page Elements ────────────────────────────────────────────────
 
-  function extractPageElements() {
+  function extractPage() {
+    const navbar = queryFirst('nav, .navbar, [class*="navbar"], [class*="topbar"], header');
+    const breadcrumbs = queryFirst('.breadcrumbs, [class*="breadcrumb"], [aria-label="breadcrumb"]');
+    const panel = queryFirst('.panel, [class*="panel"][class*="bottom"]');
+
     const page = {
-      hasNavbar: false,
-      hasBreadcrumbs: false,
-      hasModal: false,
-      hasPanel: false,
+      hasNavbar: !!navbar,
+      hasBreadcrumbs: !!breadcrumbs,
+      hasModal: !!queryFirst('.modal, [role="dialog"], [class*="dialog"]'),
+      hasPanel: !!panel,
       panelContent: null,
       breadcrumbPath: [],
       navItems: []
     };
 
-    // Navbar / top bar
-    const navbar = document.querySelector(
-      'nav, ' +
-      '.navbar, ' +
-      '[class*="navbar"], ' +
-      '[class*="topbar"], ' +
-      'header'
-    );
-    page.hasNavbar = !!navbar;
-
-    // Navigation items
     if (navbar) {
-      const navLinks = navbar.querySelectorAll('a, button, [role="menuitem"]');
-      navLinks.forEach(link => {
-        const text = link.textContent?.trim();
-        if (text && text.length < 50) {
-          page.navItems.push(text);
-        }
+      navbar.querySelectorAll('a, button, [role="menuitem"]').forEach(el => {
+        const t = el.textContent?.trim();
+        if (t && t.length < 50) page.navItems.push(t);
       });
     }
 
-    // Breadcrumbs
-    const breadcrumbs = document.querySelector(
-      '.breadcrumbs, ' +
-      '[class*="breadcrumb"], ' +
-      '[aria-label="breadcrumb"]'
-    );
-    page.hasBreadcrumbs = !!breadcrumbs;
     if (breadcrumbs) {
-      const crumbs = breadcrumbs.querySelectorAll('a, span, li');
-      crumbs.forEach(crumb => {
-        const text = crumb.textContent?.trim();
-        if (text && text.length < 100) {
-          page.breadcrumbPath.push(text);
-        }
+      breadcrumbs.querySelectorAll('a, span, li').forEach(el => {
+        const t = el.textContent?.trim();
+        if (t && t.length < 100) page.breadcrumbPath.push(t);
       });
     }
 
-    // Modal / dialog
-    const modal = document.querySelector(
-      '.modal, ' +
-      '[role="dialog"], ' +
-      '[class*="modal"][class*="visible"], ' +
-      '[class*="dialog"]'
-    );
-    page.hasModal = !!modal;
-
-    // Bottom panel (terminal, output, etc.)
-    const panel = document.querySelector(
-      '.panel, ' +
-      '[class*="panel"][class*="bottom"], ' +
-      '.output-panel'
-    );
-    page.hasPanel = !!panel;
     if (panel) {
-      const panelTitle = panel.querySelector(
-        '.panel-title, ' +
-        '[class*="panel"] [class*="title"], ' +
-        '.tab.active'
-      );
-      if (panelTitle) {
-        page.panelContent = panelTitle.textContent?.trim() || null;
-      }
+      page.panelContent = textOf('.panel-title, [class*="panel"] [class*="title"]');
     }
 
     return page;
   }
 
-  // ── DOM: ORGN CDE Specific Elements ──────────────────────────────
+  // ── ORGN-Specific State ──────────────────────────────────────────
 
-  function extractOrgnSpecific() {
+  function extractOrgn() {
     const orgn = {
-      projectName: null,
-      trialName: null,
-      trialStatus: null,
-      workspaceName: null,
-      userName: null,
-      organizationName: null,
-      currentView: null,
-      isIDE: false,
-      ideType: null
+      projectName: null, trialName: null, trialStatus: null,
+      workspaceName: null, userName: null, organizationName: null,
+      currentView: null, activeTab: null, activeSubtab: null,
+      isIDE: false, ideType: null
     };
 
-    // Try various selectors that might contain project/trial info
-    // These are speculative - the actual ORGN CDE DOM will reveal which work
-
-    // Look for data attributes
-    const dataElements = document.querySelectorAll('[data-project], [data-trial], [data-workspace]');
-    dataElements.forEach(el => {
+    // Data attributes
+    document.querySelectorAll('[data-project], [data-trial], [data-workspace]').forEach(el => {
       if (el.dataset.project) orgn.projectName = el.dataset.project;
       if (el.dataset.trial) orgn.trialName = el.dataset.trial;
       if (el.dataset.workspace) orgn.workspaceName = el.dataset.workspace;
     });
 
-    // Look for common patterns in ORGN CDE UI
-    // Header / top-level project indicators
-    const headerTexts = document.querySelectorAll(
-      'h1, h2, h3, ' +
-      '[class*="project-name"], ' +
-      '[class*="projectName"], ' +
-      '[class*="trial-name"], ' +
-      '[class*="trialName"], ' +
-      '[class*="workspace-name"], ' +
-      '[class*="workspaceName"]'
-    );
-    headerTexts.forEach(el => {
+    // Class-based detection
+    document.querySelectorAll(
+      'h1, h2, h3, [class*="project-name"], [class*="projectName"], ' +
+      '[class*="trial-name"], [class*="trialName"]'
+    ).forEach(el => {
       const text = el.textContent?.trim();
       if (!text || text.length > 100) return;
-
-      // Check class hints
-      const classes = el.className || '';
-      if (/project/i.test(classes) && !orgn.projectName) {
-        orgn.projectName = text;
-      }
-      if (/trial/i.test(classes) && !orgn.trialName) {
-        orgn.trialName = text;
-      }
-      if (/workspace/i.test(classes) && !orgn.workspaceName) {
-        orgn.workspaceName = text;
-      }
+      const cls = el.className || '';
+      if (/project/i.test(cls) && !orgn.projectName) orgn.projectName = text;
+      if (/trial/i.test(cls) && !orgn.trialName) orgn.trialName = text;
     });
 
-    // User info (avatar area, user menu, etc.)
-    const userEl = document.querySelector(
-      '[class*="user-name"], ' +
-      '[class*="userName"], ' +
-      '[class*="avatar"] + span, ' +
-      '[class*="user-info"], ' +
-      '[class*="profile-name"]'
-    );
-    if (userEl) {
-      orgn.userName = userEl.textContent?.trim() || null;
-    }
+    orgn.userName = textOf('[class*="user-name"], [class*="userName"], [class*="user-info"]');
+    orgn.organizationName = textOf('[class*="org-name"], [class*="orgName"], [class*="organization"]');
+    orgn.trialStatus = textOf('[class*="trial-status"], [class*="trialStatus"], [class*="status-badge"]');
 
-    // Organization
-    const orgEl = document.querySelector(
-      '[class*="org-name"], ' +
-      '[class*="orgName"], ' +
-      '[class*="organization"], ' +
-      '[class*="team-name"]'
-    );
-    if (orgEl) {
-      orgn.organizationName = orgEl.textContent?.trim() || null;
-    }
-
-    // Trial status (running, stopped, etc.)
-    const statusEl = document.querySelector(
-      '[class*="trial-status"], ' +
-      '[class*="trialStatus"], ' +
-      '[class*="status-badge"], ' +
-      '[class*="status"][class*="indicator"]'
-    );
-    if (statusEl) {
-      orgn.trialStatus = statusEl.textContent?.trim() || null;
-    }
-
-    // Detect if we are in an IDE view (iframe or embedded editor)
-    const ideFrame = document.querySelector(
-      'iframe[src*="code"], ' +
-      'iframe[src*="editor"], ' +
-      'iframe[src*="vscode"], ' +
-      'iframe[src*="theia"], ' +
-      'iframe[src*="jupyter"]'
+    // IDE detection (iframe)
+    const ideFrame = queryFirst(
+      'iframe[src*="code"], iframe[src*="editor"], iframe[src*="vscode"], ' +
+      'iframe[src*="theia"], iframe[src*="jupyter"]'
     );
     if (ideFrame) {
       orgn.isIDE = true;
@@ -635,37 +372,25 @@
       else orgn.ideType = 'unknown';
     }
 
-    // Also check if the page itself IS the IDE (not in iframe)
-    if (!orgn.isIDE) {
-      const isDirectIDE = document.querySelector(
-        '.monaco-workbench, ' +
-        '#workbench\\.parts\\.editor, ' +
-        '.theia-ApplicationShell, ' +
-        '#jupyter-main-app'
-      );
-      if (isDirectIDE) {
-        orgn.isIDE = true;
-        if (document.querySelector('.theia-ApplicationShell')) orgn.ideType = 'theia';
-        else if (document.querySelector('#jupyter-main-app')) orgn.ideType = 'jupyter';
-        else orgn.ideType = 'vscode-web';
-      }
+    // IDE detection (direct)
+    if (!orgn.isIDE && queryFirst('.monaco-workbench, #workbench\\.parts\\.editor, .theia-ApplicationShell, #jupyter-main-app')) {
+      orgn.isIDE = true;
+      if (queryFirst('.theia-ApplicationShell')) orgn.ideType = 'theia';
+      else if (queryFirst('#jupyter-main-app')) orgn.ideType = 'jupyter';
+      else orgn.ideType = 'vscode-web';
     }
 
-    // Determine current view from URL, query params, and DOM context
+    // Current view from URL + query params
     const pathname = window.location.pathname;
-    const qTab = new URLSearchParams(window.location.search).get('tab');
+    const params = new URLSearchParams(window.location.search);
+    const qTab = params.get('tab');
 
     if (/\/editor\b/i.test(pathname) || orgn.isIDE) {
       orgn.currentView = 'editor';
     } else if (/\/projects\/?$/i.test(pathname)) {
       orgn.currentView = 'projects-list';
     } else if (/\/projects\/[^/]+\/?$/i.test(pathname)) {
-      // Project detail page -- refine by query param ?tab=...
-      if (qTab) {
-        orgn.currentView = 'project-' + qTab;  // e.g. 'project-tasks', 'project-context'
-      } else {
-        orgn.currentView = 'project-detail';
-      }
+      orgn.currentView = qTab ? 'project-' + qTab : 'project-detail';
     } else if (/\/trials?\//i.test(pathname)) {
       orgn.currentView = 'trial';
     } else if (/\/new\/?$/i.test(pathname)) {
@@ -682,378 +407,183 @@
       orgn.currentView = 'other';
     }
 
-    // Store the active tab/subtab for richer context
     orgn.activeTab = qTab || null;
-    orgn.activeSubtab = new URLSearchParams(window.location.search).get('subtab') || null;
+    orgn.activeSubtab = params.get('subtab') || null;
 
     return orgn;
   }
 
-  // ── DOM: Detect File Language from Extension ─────────────────────
-
-  function detectLanguageFromFilename(filename) {
-    if (!filename) return null;
-
-    const extensionMap = {
-      '.js': 'JavaScript', '.jsx': 'React JSX', '.ts': 'TypeScript', '.tsx': 'React TSX',
-      '.py': 'Python', '.rb': 'Ruby', '.go': 'Go', '.rs': 'Rust',
-      '.java': 'Java', '.kt': 'Kotlin', '.scala': 'Scala',
-      '.c': 'C', '.cpp': 'C++', '.h': 'C Header', '.hpp': 'C++ Header',
-      '.cs': 'C#', '.fs': 'F#',
-      '.html': 'HTML', '.css': 'CSS', '.scss': 'SCSS', '.less': 'LESS',
-      '.json': 'JSON', '.yaml': 'YAML', '.yml': 'YAML', '.toml': 'TOML',
-      '.xml': 'XML', '.svg': 'SVG',
-      '.md': 'Markdown', '.mdx': 'MDX', '.txt': 'Plain Text',
-      '.sh': 'Shell', '.bash': 'Bash', '.zsh': 'Zsh', '.fish': 'Fish',
-      '.ps1': 'PowerShell', '.bat': 'Batch',
-      '.sql': 'SQL', '.graphql': 'GraphQL', '.gql': 'GraphQL',
-      '.dockerfile': 'Dockerfile', '.docker': 'Docker',
-      '.vue': 'Vue', '.svelte': 'Svelte', '.astro': 'Astro',
-      '.php': 'PHP', '.swift': 'Swift', '.dart': 'Dart',
-      '.r': 'R', '.jl': 'Julia', '.lua': 'Lua', '.zig': 'Zig',
-      '.tf': 'Terraform', '.hcl': 'HCL',
-      '.proto': 'Protocol Buffers', '.wasm': 'WebAssembly',
-      '.env': 'Environment', '.gitignore': 'Git Ignore',
-      '.lock': 'Lock File', '.config': 'Config'
-    };
-
-    // Check full filename first (Dockerfile, Makefile, etc.)
-    const lowerName = filename.toLowerCase();
-    if (lowerName === 'dockerfile') return 'Dockerfile';
-    if (lowerName === 'makefile') return 'Makefile';
-    if (lowerName === 'jenkinsfile') return 'Jenkinsfile';
-    if (lowerName === '.gitignore') return 'Git Ignore';
-    if (lowerName === '.env' || lowerName.startsWith('.env.')) return 'Environment';
-
-    // Match by extension
-    const dotIndex = filename.lastIndexOf('.');
-    if (dotIndex !== -1) {
-      const ext = filename.slice(dotIndex).toLowerCase();
-      return extensionMap[ext] || null;
-    }
-
-    return null;
-  }
-
-  // ── Full Extraction ──────────────────────────────────────────────
+  // ── Full State Extraction ────────────────────────────────────────
 
   function extractFullState() {
-    const state = {
-      timestamp: Date.now(),
-      url: extractUrlInfo(),
-      title: extractTitleInfo(),
-      meta: extractMetaTags(),
-      editor: extractEditorState(),
-      sidebar: extractSidebarState(),
-      statusBar: extractStatusBarInfo(),
-      page: extractPageElements(),
-      orgn: extractOrgnSpecific(),
-      computed: {} // Computed/derived fields
-    };
+    const url = extractUrl();
+    const title = extractTitle();
+    const meta = extractMeta();
+    const editor = extractEditor();
+    const sidebar = extractSidebar();
+    const statusBar = extractStatusBar();
+    const page = extractPage();
+    const orgn = extractOrgn();
 
-    // ── Compute derived fields ─────────────────────────────────
+    // ── Computed fields ──────────────────────────────────────────
+    const computed = {};
+    const view = orgn.currentView || '';
+    const titleClean = title.clean || null;
 
-    // Best guess at project name:
-    // 1. ORGN DOM-detected name (most reliable)
-    // 2. meta description "Project <name> in Orgn CDE" (works on all pages)
-    // 3. Page title clean -- only if on a project page and not a generic label
-    // 4. URL slug (only if not a UUID)
-    const urlSlug = state.url.routeInfo.projectSlug || null;
-    const titleClean = state.title.clean || null;
-    const currentView = state.orgn.currentView || '';
-    const isOnProjectPage = currentView.startsWith('project');
-    const isUUID = (s) => s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    // Project name resolution (priority order)
+    const metaMatch = (meta.description || '').match(/^Project\s+(.+?)\s+in\s+Orgn\s*CDE$/i);
+    const metaProjectName = metaMatch ? metaMatch[1].trim() : null;
+    const isProjectPage = view.startsWith('project');
+    const titleName = isProjectPage && titleClean && !GENERIC_TITLES.test(titleClean) ? titleClean : null;
+    const slug = url.routeInfo.projectSlug;
 
-    // Extract project name from meta description: "Project <name> in Orgn CDE"
-    const metaDesc = state.meta.description || '';
-    const metaProjectMatch = metaDesc.match(/^Project\s+(.+?)\s+in\s+Orgn\s*CDE$/i);
-    const metaProjectName = metaProjectMatch ? metaProjectMatch[1].trim() : null;
+    computed.projectName = orgn.projectName || metaProjectName || titleName ||
+      (slug && !UUID_RE.test(slug) ? slug : null) || null;
 
-    // Title is the real project name if we're on a project page
-    const genericLabels = /^(projects?|dashboard|settings|new|orgn cde|new project|chat)$/i;
-    const titleBasedName = isOnProjectPage && titleClean && !genericLabels.test(titleClean)
-      ? titleClean : null;
+    // Active tab/subtab
+    computed.activeTab = orgn.activeTab || url.routeInfo.activeTab || null;
+    computed.activeSubtab = orgn.activeSubtab || url.routeInfo.activeSubtab || null;
 
-    state.computed.projectName =
-      state.orgn.projectName ||
-      metaProjectName ||
-      titleBasedName ||
-      (isUUID(urlSlug) ? null : urlSlug) ||
-      null;
-
-    // Active tab/subtab (query parameters)
-    state.computed.activeTab = state.orgn.activeTab || state.url.routeInfo.activeTab || null;
-    state.computed.activeSubtab = state.orgn.activeSubtab || state.url.routeInfo.activeSubtab || null;
-
-    // Best guess at current activity
-    if (state.editor.hasEditor && state.editor.activeFile) {
-      state.computed.activity = 'editing';
-      state.computed.activityTarget = state.editor.activeFile;
-      state.computed.language = state.editor.activeLanguage ||
-        detectLanguageFromFilename(state.editor.activeFile);
-    } else if (state.editor.hasTerminal && state.editor.terminalActive) {
-      state.computed.activity = 'terminal';
-      state.computed.activityTarget = 'Terminal';
-    } else if (currentView === 'editor') {
-      state.computed.activity = 'ide';
-      state.computed.activityTarget = state.orgn.ideType || 'IDE';
-    } else if (currentView === 'chat-trial') {
-      // /chat/{trialId} -- Trial chat view
-      // Discord format: details = projectName, state = "Trial · <title clean>"
-      state.computed.activity = 'chat-trial';
-      state.computed.activityTarget = titleClean || 'Chat';
-    } else if (state.computed.activeTab) {
-      // Tab-based navigation within a project page
-      // e.g. ?tab=tasks -> "Viewing Tasks", ?tab=context -> "Viewing Context"
-      const tabLabels = {
-        'tasks': 'Viewing Tasks',
-        'context': 'Viewing Context',
-        'explorer': 'Browsing Files',
-        'features': 'Viewing Features',
-        'security': 'Viewing Security',
-        'integrations': 'Viewing Integrations',
-        'usage': 'Viewing Usage',
-        'settings': 'Project Settings'
-      };
-      const tabLabel = tabLabels[state.computed.activeTab] ||
-        ('Viewing ' + state.computed.activeTab.charAt(0).toUpperCase() + state.computed.activeTab.slice(1));
-      state.computed.activity = 'tab';
-      state.computed.activityTarget = tabLabel;
+    // Activity detection
+    if (editor.hasEditor && editor.activeFile) {
+      computed.activity = 'editing';
+      computed.activityTarget = editor.activeFile;
+      computed.language = editor.activeLanguage || detectLanguage(editor.activeFile);
+    } else if (editor.hasTerminal && editor.terminalActive) {
+      computed.activity = 'terminal';
+      computed.activityTarget = 'Terminal';
+    } else if (view === 'editor') {
+      computed.activity = 'ide';
+      computed.activityTarget = orgn.ideType || 'IDE';
+    } else if (view === 'chat-trial') {
+      computed.activity = 'chat-trial';
+      computed.activityTarget = titleClean || 'Chat';
+    } else if (computed.activeTab) {
+      const label = TAB_LABELS[computed.activeTab] ||
+        ('Viewing ' + computed.activeTab.charAt(0).toUpperCase() + computed.activeTab.slice(1));
+      computed.activity = 'tab';
+      computed.activityTarget = label;
     } else {
-      state.computed.activity = 'browsing';
-      state.computed.activityTarget = state.orgn.currentView || 'page';
+      computed.activity = 'browsing';
+      computed.activityTarget = view || 'page';
     }
 
-    // Git branch if available
-    state.computed.gitBranch = state.statusBar.git || null;
+    // Git / trial
+    computed.gitBranch = statusBar.git || null;
+    computed.trialName = orgn.trialName || title.parts.trialName || url.routeInfo.trialId || null;
+    computed.trialStatus = orgn.trialStatus || null;
 
-    // Trial info -- also check chat trial ID
-    state.computed.trialName =
-      state.orgn.trialName ||
-      state.title.parts.trialName ||
-      state.url.routeInfo.trialId ||
-      null;
-
-    // For chat-trial view, use the title as trial display name
-    // and the chat ID as the trial ID
-    if (currentView === 'chat-trial') {
-      state.computed.trialId = state.url.routeInfo.chatTrialId || null;
-      if (!state.computed.trialName && titleClean && !genericLabels.test(titleClean)) {
-        state.computed.trialName = titleClean;
+    if (view === 'chat-trial') {
+      computed.trialId = url.routeInfo.chatTrialId || null;
+      if (!computed.trialName && titleClean && !GENERIC_TITLES.test(titleClean)) {
+        computed.trialName = titleClean;
       }
     }
 
-    state.computed.trialStatus = state.orgn.trialStatus || null;
-
-    return state;
+    return { timestamp: Date.now(), url, title, meta, editor, sidebar, statusBar, page, orgn, computed };
   }
 
-  // ── State Hashing (to detect changes) ────────────────────────────
+  // ── State hash ───────────────────────────────────────────────────
 
-  function hashState(state) {
-    // Create a simple hash from key fields to detect meaningful changes
-    const keyFields = [
-      state.title.raw,
-      state.url.pathname,
-      state.url.url,  // full URL including query params
-      state.computed.activity,
-      state.computed.activityTarget,
-      state.computed.projectName,
-      state.computed.trialName,
-      state.computed.activeTab,
-      state.computed.activeSubtab,
-      state.computed.language,
-      state.computed.gitBranch
-    ];
-    return keyFields.join('|');
+  function hashState(s) {
+    return [
+      s.title.raw, s.url.url, s.computed.activity, s.computed.activityTarget,
+      s.computed.projectName, s.computed.trialName, s.computed.activeTab,
+      s.computed.activeSubtab, s.computed.language, s.computed.gitBranch
+    ].join('|');
   }
 
-  // ── Message Passing to Background Script ─────────────────────────
+  // ── Communication ────────────────────────────────────────────────
 
-  function sendStateToBackground(state) {
+  function sendToBackground(state) {
     try {
-      chrome.runtime.sendMessage({
-        type: 'contentScriptState',
-        state: state
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          // Background might not be ready yet, silently ignore
-          return;
-        }
-        if (response?.acknowledged) {
-          log('State acknowledged by background');
-        }
+      chrome.runtime.sendMessage({ type: 'contentScriptState', state }, () => {
+        if (chrome.runtime.lastError) { /* background not ready */ }
       });
-    } catch (e) {
-      // Extension context might be invalidated
-      warn('Failed to send state to background:', e.message);
+    } catch {
       stopExtraction();
     }
   }
 
-  // ── Extraction Loop ──────────────────────────────────────────────
+  // ── Extraction loop ──────────────────────────────────────────────
 
   function runExtraction() {
     try {
       const state = extractFullState();
-      const currentHash = hashState(state);
-
-      // Log full state for diagnostics (always, for testing phase)
-      log('=== FULL EXTRACTED STATE ===');
-      log('URL:', JSON.stringify(state.url.routeInfo, null, 2));
-      log('Title:', JSON.stringify(state.title, null, 2));
-      log('Editor:', JSON.stringify(state.editor, null, 2));
-      log('ORGN:', JSON.stringify(state.orgn, null, 2));
-      log('StatusBar:', JSON.stringify(state.statusBar, null, 2));
-      log('Page:', JSON.stringify(state.page, null, 2));
-      log('Computed:', JSON.stringify(state.computed, null, 2));
-      log('===========================');
-
-      // Only send to background if state changed
-      if (currentHash !== lastStateHash) {
-        lastStateHash = currentHash;
-        log('State changed, sending update to background');
-        sendStateToBackground(state);
+      const hash = hashState(state);
+      if (hash !== lastStateHash) {
+        lastStateHash = hash;
+        sendToBackground(state);
       }
     } catch (e) {
-      warn('Extraction error:', e.message, e.stack);
+      console.warn(LOG_PREFIX, 'Extraction error:', e.message);
     }
   }
 
-  // ── MutationObserver for Real-Time Changes ───────────────────────
+  // ── Observers ────────────────────────────────────────────────────
 
-  function setupMutationObserver() {
-    if (mutationObserver) return;
-
-    // Debounce rapid DOM changes
-    let debounceTimer = null;
-
-    mutationObserver = new MutationObserver((mutations) => {
-      // Filter for relevant mutations (title changes, class changes, etc.)
-      const isRelevant = mutations.some(m => {
-        // Title changes
-        if (m.target.nodeName === 'TITLE') return true;
-        // Tab/editor area changes
-        if (m.target.closest?.('.tab, .editor, .monaco-editor, .statusbar, [class*="tab"], [class*="editor"]')) return true;
-        // Attribute changes on relevant elements
-        if (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'title')) return true;
-        return false;
+  function setupObservers() {
+    // Title observer
+    const titleEl = document.querySelector('title');
+    if (titleEl) {
+      new MutationObserver(() => runExtraction()).observe(titleEl, {
+        childList: true, characterData: true, subtree: true
       });
+    }
 
-      if (isRelevant) {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          runExtraction();
-        }, 500); // Debounce 500ms
+    // DOM observer (debounced)
+    let debounce = null;
+    mutationObserver = new MutationObserver((mutations) => {
+      const relevant = mutations.some(m =>
+        m.target.nodeName === 'TITLE' ||
+        m.target.closest?.('.tab, .editor, .monaco-editor, .statusbar') ||
+        (m.type === 'attributes' && (m.attributeName === 'class' || m.attributeName === 'title'))
+      );
+      if (relevant) {
+        clearTimeout(debounce);
+        debounce = setTimeout(runExtraction, 500);
       }
     });
 
     mutationObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
+      childList: true, subtree: true, attributes: true,
       attributeFilter: ['class', 'title', 'data-project', 'data-trial']
     });
-
-    log('MutationObserver active');
   }
 
   // ── Start / Stop ─────────────────────────────────────────────────
 
   function startExtraction() {
-    log('Starting state extraction (interval: ' + EXTRACT_INTERVAL_MS + 'ms)');
-
-    // Initial extraction
     runExtraction();
-
-    // Periodic extraction
     extractionInterval = setInterval(runExtraction, EXTRACT_INTERVAL_MS);
-
-    // Also watch for DOM changes
-    setupMutationObserver();
+    setupObservers();
   }
 
   function stopExtraction() {
-    if (extractionInterval) {
-      clearInterval(extractionInterval);
-      extractionInterval = null;
-    }
-    if (mutationObserver) {
-      mutationObserver.disconnect();
-      mutationObserver = null;
-    }
-    log('State extraction stopped');
+    if (extractionInterval) { clearInterval(extractionInterval); extractionInterval = null; }
+    if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   }
 
-  // ── Listen for Messages from Background/Popup ────────────────────
+  // ── Message handler ──────────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    switch (message.type) {
-      case 'requestState': {
-        // On-demand state extraction
-        const state = extractFullState();
-        sendResponse({ state });
-        return true;
-      }
-
-      case 'getDiagnostics': {
-        // Return full diagnostics for the popup panel
-        const state = extractFullState();
-        sendResponse({
-          state,
-          extractionActive: !!extractionInterval,
-          lastHash: lastStateHash,
-          debug: DEBUG_MODE
-        });
-        return true;
-      }
-
-      case 'stopExtraction':
-        stopExtraction();
-        sendResponse({ success: true });
-        return true;
-
-      case 'startExtraction':
-        startExtraction();
-        sendResponse({ success: true });
-        return true;
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'requestState' || message.type === 'getDiagnostics') {
+      const state = extractFullState();
+      sendResponse(message.type === 'getDiagnostics'
+        ? { state, extractionActive: !!extractionInterval, lastHash: lastStateHash }
+        : { state }
+      );
+      return true;
     }
+    if (message.type === 'stopExtraction') { stopExtraction(); sendResponse({ success: true }); return true; }
+    if (message.type === 'startExtraction') { startExtraction(); sendResponse({ success: true }); return true; }
   });
 
-  // ── Title Change Observer (lightweight, always on) ───────────────
+  // ── Init ─────────────────────────────────────────────────────────
 
-  function watchTitleChanges() {
-    const titleEl = document.querySelector('title');
-    if (!titleEl) return;
-
-    const titleObserver = new MutationObserver(() => {
-      log('Title changed:', document.title);
-      // Trigger extraction on title change
-      runExtraction();
-    });
-
-    titleObserver.observe(titleEl, {
-      childList: true,
-      characterData: true,
-      subtree: true
-    });
-
-    log('Title observer active');
-  }
-
-  // ── Initialize ───────────────────────────────────────────────────
-
-  function init() {
-    log('Content script initialized on:', window.location.href);
-    watchTitleChanges();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startExtraction);
+  } else {
     startExtraction();
   }
-
-  // Wait for DOM to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-
 })();
