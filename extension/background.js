@@ -222,22 +222,11 @@ async function handleMessage(msg) {
       return { desktopAppConnected, orgnSessionActive: !!start, orgnSessionStart: start, lastState: lastOrgnState };
     }
 
-    case 'getOrgnState': {
-      const start = await getSessionStart();
-      const s = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
-      return { connected: desktopAppConnected, sessionStart: start, details: s.orgnLastDetails || null, state: s.orgnLastState || null };
-    }
-
     case 'clearActivity':
       lastOrgnState = null;
       await chrome.storage.local.remove(['orgnSessionStart', 'orgnLastDetails', 'orgnLastState', 'orgnLastHeartbeat']);
       send({ type: 'clearActivity' });
       return { success: true };
-
-    case 'getContentScriptState': {
-      const cs = await chrome.storage.local.get(['orgnContentScriptState']);
-      return { state: cs.orgnContentScriptState || null };
-    }
 
     case 'injectContentScript': {
       if (!msg.tabId) return { success: false, error: 'No tabId provided' };
