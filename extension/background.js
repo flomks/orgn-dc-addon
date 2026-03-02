@@ -287,6 +287,9 @@ async function handleMessage(msg) {
       const start = Date.now();
       lastOrgnState = null;
       await chrome.storage.local.set({ orgnSessionStart: start });
+      // Immediately re-scrape active tab and push to Discord
+      // (needed when privacy toggle changes so the new hideNames value takes effect)
+      refreshActiveTab();
       return { success: true, orgnSessionStart: start };
     }
 
@@ -300,6 +303,8 @@ async function handleMessage(msg) {
       await chrome.storage.sync.set({ trackingPaused: false });
       lastOrgnState = null;
       setBadge('', '#22c55e');
+      // Immediately re-scrape active tab and push to Discord
+      refreshActiveTab();
       return { success: true };
 
     default:
