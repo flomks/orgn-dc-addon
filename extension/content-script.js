@@ -17,7 +17,7 @@
   // ── Version guard ────────────────────────────────────────────────
   // Prevents double-injection within the same version while allowing
   // re-injection after extension updates.
-  const SCRIPT_VERSION = 6;
+  const SCRIPT_VERSION = 7;
   if (window.__orgnBridgeVersion === SCRIPT_VERSION) return;
   window.__orgnBridgeVersion = SCRIPT_VERSION;
 
@@ -494,11 +494,19 @@
 
   function sendToBackground(state) {
     try {
+      // chrome.runtime may temporarily throw if the service worker is
+      // restarting.  Never kill the extraction loop for transient errors
+      // -- just skip this cycle and retry on the next interval.
       chrome.runtime.sendMessage({ type: 'contentScriptState', state }, () => {
-        if (chrome.runtime.lastError) { /* background not ready */ }
+        if (chrome.runtime.lastError) {
+          // Background not ready -- clear hash so next cycle retries
+          lastStateHash = '';
+        }
       });
     } catch {
-      stopExtraction();
+      // Service worker unreachable -- this is normal during restarts.
+      // Clear hash so the next extraction cycle retries the send.
+      lastStateHash = '';
     }
   }
 
