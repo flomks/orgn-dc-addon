@@ -185,6 +185,17 @@ async function checkActiveTab() {
 
     if (!isOrgnDomain(hostname)) return;
 
+    // If the content script recently sent a richer state update,
+    // defer to it instead of overwriting with the simpler tab-title parse.
+    // Content script state is more accurate (has DOM access, query params, etc.)
+    if (lastContentScriptState) {
+      const age = Date.now() - (lastContentScriptState.receivedAt || 0);
+      if (age < 30000) {
+        // Content script state is fresh (< 30s old), skip tab-title fallback
+        return;
+      }
+    }
+
     const parsed = parseOrgnPage(tab.title, tab.url);
     const stateKey = `${parsed.details}|${parsed.state}`;
 
