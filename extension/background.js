@@ -43,12 +43,17 @@ const VIEW_LABELS = {
 
 // ── Keepalive ──────────────────────────────────────────────────────
 
-chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 0.05, periodInMinutes: 25 / 60 });
+// Keep the service worker alive and the WebSocket connected.
+// 20-second period stays well under Chrome's ~30s shutdown threshold.
+chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 0.05, periodInMinutes: 20 / 60 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   await chrome.storage.local.set({ orgnLastHeartbeat: Date.now() });
   await ensureConnected();
+  // Also refresh the active tab so the latest state is re-sent after
+  // any period of inactivity where the WebSocket may have dropped.
+  refreshActiveTab();
 });
 
 // ── WebSocket ──────────────────────────────────────────────────────
@@ -218,9 +223,20 @@ async function refreshActiveTab() {
     try { hostname = new URL(tab.url).hostname; } catch { return; }
     if (!isOrgnDomain(hostname)) return;
 
-    chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (resp) => {
-      if (chrome.runtime.lastError || !resp?.state) return;
-      handleContentScriptState(resp.state, { tab });
+    chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, async (resp) => {
+      if (!chrome.runtime.lastError && resp?.state) {
+        handleContentScriptState(resp.state, { tab });
+        return;
+      }
+      // Content script unreachable -- re-inject it and retry once
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-script.js'] });
+        chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (retry) => {
+          if (!chrome.runtime.lastError && retry?.state) {
+            handleContentScriptState(retry.state, { tab });
+          }
+        });
+      } catch { /* injection failed, tab may not be injectable */ }
     });
   } catch { /* ignore */ }
 }
