@@ -1,300 +1,123 @@
-// Background Service Worker - ORGN Discord Bridge
-// Focused on tracking ORGN CDE (cde.orgn.com) activity
+/**
+ * Background Service Worker -- ORGN Discord Bridge
+ *
+ * Single source of truth for Discord Rich Presence activity.
+ * Priority: content script state > tab-title fallback.
+ *
+ * Architecture:
+ *   - Keepalive alarm every 25s: reconnect WebSocket + heartbeat
+ *   - Content script sends rich state via 'contentScriptState' messages
+ *   - Tab-title fallback only runs when NO content script state exists
+ *   - Popup reads activity from chrome.storage.local
+ */
 
 const WS_URL = 'ws://127.0.0.1:7890';
 const ORGN_DOMAINS = ['orgn.com', 'cde.orgn.com'];
 const KEEPALIVE_ALARM = 'keepalive';
-
-// If the gap between now and the last heartbeat exceeds this threshold (ms),
-// we assume the browser / app was closed and the session timer should reset.
-// The keepalive alarm fires every ~25 s, so 2 minutes gives plenty of margin.
-const STALE_SESSION_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+const STALE_SESSION_MS = 2 * 60 * 1000;
 
 let ws = null;
 let desktopAppConnected = false;
 let lastOrgnState = null;
-let lastContentScriptState = null; // Rich state from content script
+let lastContentScriptState = null;
 
-// ── Service Worker Keep-Alive ────────────────────────────────────
-// Chrome alarms survive service worker restarts. This fires every ~25s
-// to reconnect the WebSocket and re-check the active tab.
+// ── View Labels ────────────────────────────────────────────────────
+// Shared map for converting currentView -> display string.
 
-chrome.alarms.create(KEEPALIVE_ALARM, {
-  delayInMinutes: 0.05,       // first fire in 3 seconds
-  periodInMinutes: 25 / 60    // then every 25 seconds
-});
+const VIEW_LABELS = {
+  'dashboard': 'Viewing Dashboard',
+  'projects-list': 'Browsing Projects',
+  'project-detail': 'Viewing Project',
+  'project-tasks': 'Viewing Tasks',
+  'project-context': 'Viewing Context',
+  'project-explorer': 'Browsing Files',
+  'project-features': 'Viewing Features',
+  'project-security': 'Viewing Security',
+  'project-integrations': 'Viewing Integrations',
+  'project-usage': 'Viewing Usage',
+  'project-settings': 'Project Settings',
+  'new-project': 'Creating Project',
+  'chat': 'In Chat',
+  'chat-trial': 'Working on Trial',
+  'trial': 'Working on Trial',
+  'settings': 'In Settings',
+  'editor': 'In Editor',
+  'other': 'Browsing'
+};
+
+// ── Keepalive ──────────────────────────────────────────────────────
+
+chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 0.05, periodInMinutes: 25 / 60 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
-  // Record a heartbeat so we can detect stale sessions after browser restart
   await chrome.storage.local.set({ orgnLastHeartbeat: Date.now() });
   await ensureConnected();
   await checkActiveTab();
 });
 
-// ── WebSocket Connection ─────────────────────────────────────────
+// ── WebSocket ──────────────────────────────────────────────────────
 
 async function ensureConnected() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    // Already connected - just ping
-    try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) { /* ignore */ }
+  if (ws?.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify({ type: 'ping' })); } catch { /* ignore */ }
     return;
   }
-
-  // Not connected - try to connect
-  if (ws) {
-    try { ws.close(); } catch (e) { /* ignore */ }
-    ws = null;
-  }
+  if (ws) { try { ws.close(); } catch { /* ignore */ } ws = null; }
 
   return new Promise((resolve) => {
     try {
       const socket = new WebSocket(WS_URL);
       const timeout = setTimeout(() => {
-        try { socket.close(); } catch (e) { /* ignore */ }
+        try { socket.close(); } catch { /* ignore */ }
         desktopAppConnected = false;
         resolve();
       }, 3000);
 
-      socket.onopen = () => {
-        clearTimeout(timeout);
-        ws = socket;
-        desktopAppConnected = true;
-        setBadge('', '#22c55e');
-        resolve();
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'error') console.warn('[ORGN] Desktop error:', msg.error);
-        } catch (e) { /* ignore */ }
-      };
-
-      socket.onclose = () => {
-        if (ws === socket) {
-          ws = null;
-          desktopAppConnected = false;
-          setBadge('!', '#ef4444');
-        }
-      };
-
-      socket.onerror = () => {
-        clearTimeout(timeout);
-        desktopAppConnected = false;
-        setBadge('!', '#ef4444');
-        resolve();
-      };
-    } catch (e) {
-      desktopAppConnected = false;
-      resolve();
-    }
+      socket.onopen = () => { clearTimeout(timeout); ws = socket; desktopAppConnected = true; setBadge('', '#22c55e'); resolve(); };
+      socket.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.type === 'error') console.warn('[ORGN] Desktop:', m.error); } catch { /* ignore */ } };
+      socket.onclose = () => { if (ws === socket) { ws = null; desktopAppConnected = false; setBadge('!', '#ef4444'); } };
+      socket.onerror = () => { clearTimeout(timeout); desktopAppConnected = false; setBadge('!', '#ef4444'); resolve(); };
+    } catch { desktopAppConnected = false; resolve(); }
   });
 }
 
-function send(message) {
+function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-  try {
-    ws.send(JSON.stringify(message));
-    return true;
-  } catch (e) {
-    return false;
-  }
+  try { ws.send(JSON.stringify(msg)); return true; } catch { return false; }
 }
 
-// ── ORGN Page Detection ──────────────────────────────────────────
+// ── Domain Check ───────────────────────────────────────────────────
 
 function isOrgnDomain(hostname) {
   return ORGN_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
 }
 
-/**
- * Parse ORGN CDE page title into structured activity data.
- *
- * Patterns:
- *   "fixes extension - Trial · Orgn CDE"  -> details: "fixes extension", state: "Working on Trial"
- *   "orgn-dc-addon · Orgn CDE"            -> details: "orgn-dc-addon", state: "Viewing Project"  (when URL has /projects/)
- *   "Projects · Orgn CDE"                 -> details: "Projects", state: "Browsing"
- *   "Orgn CDE"                            -> details: "Dashboard", state: "Browsing"
- */
-function parseOrgnPage(title, url) {
-  const result = { details: '', state: '' };
-  if (!title) return result;
-
-  // Remove suffix; require spaces around dash to avoid splitting names like "orgn-dc-addon"
-  const cleanTitle = title
-    .replace(/\s*[·|]\s*Orgn CDE\s*$/i, '')
-    .replace(/\s+[-–]\s+Orgn CDE\s*$/i, '')
-    .trim();
-
-  if (!cleanTitle || cleanTitle.toLowerCase() === 'orgn cde') {
-    result.details = 'Dashboard';
-    result.state = 'Browsing';
-    return result;
-  }
-
-  // Trial pattern: "name - Trial"  (requires spaces around the dash)
-  const trialMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+Trial$/i);
-  if (trialMatch) {
-    result.details = 'Working on Trial';
-    result.state = trialMatch[1].trim();
-    return result;
-  }
-
-  // Other separator pattern: "section - subsection"  (requires spaces around the dash)
-  const sepMatch = cleanTitle.match(/^(.+?)\s+[-–]\s+(.+)$/);
-  if (sepMatch) {
-    result.details = sepMatch[1].trim();
-    result.state = sepMatch[2].trim();
-    return result;
-  }
-
-  // URL-based detection
-  try {
-    const urlObj = new URL(url);
-    if (urlObj.pathname.includes('/projects/')) {
-      result.details = cleanTitle;
-      result.state = 'Viewing Project';
-      return result;
-    }
-  } catch (e) { /* ignore */ }
-
-  // Default
-  result.details = cleanTitle;
-  result.state = 'Browsing';
-  return result;
-}
-
-// ── Activity Management ──────────────────────────────────────────
+// ── Storage Helpers ────────────────────────────────────────────────
 
 async function isTrackingPaused() {
-  const stored = await chrome.storage.sync.get(['trackingPaused']);
-  return stored.trackingPaused === true;
-}
-
-async function checkActiveTab() {
-  try {
-    // Skip everything if tracking is paused
-    if (await isTrackingPaused()) return;
-
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url) return;
-
-    let hostname;
-    try { hostname = new URL(tab.url).hostname; } catch (e) { return; }
-
-    if (!isOrgnDomain(hostname)) return;
-
-    // If the content script recently sent a richer state update,
-    // defer to it instead of overwriting with the simpler tab-title parse.
-    // Content script state is more accurate (has DOM access, query params, etc.)
-    if (lastContentScriptState) {
-      const age = Date.now() - (lastContentScriptState.receivedAt || 0);
-      if (age < 30000) {
-        // Content script state is fresh (< 30s old), skip tab-title fallback
-        return;
-      }
-    }
-
-    const parsed = parseOrgnPage(tab.title, tab.url);
-    const stateKey = `${parsed.details}|${parsed.state}`;
-
-    // Only send update if something actually changed
-    if (stateKey === lastOrgnState && desktopAppConnected) return;
-    lastOrgnState = stateKey;
-
-    // Ensure session start exists (persist across SW restarts)
-    let sessionStart = await getSessionStart();
-    if (!sessionStart) {
-      sessionStart = Date.now();
-      await chrome.storage.local.set({ orgnSessionStart: sessionStart });
-    }
-
-    // Check privacy setting - hide names if disabled
-    const privacySettings = await chrome.storage.sync.get(['hideNames']);
-    const hideNames = privacySettings.hideNames === true;
-
-    let displayDetails = parsed.details || 'ORGN CDE';
-    let displayState = parsed.state || 'Active';
-
-    if (hideNames) {
-      // Generic page titles that are safe to show (not project/trial names)
-      const safeLabels = [
-        'Dashboard', 'Projects', 'Browsing', 'Active',
-        'Working on Trial', 'Viewing Project', 'New Project'
-      ];
-      if (parsed.state && !safeLabels.includes(parsed.state)) {
-        displayState = 'VibeCoding';
-      }
-      if (parsed.details && !safeLabels.includes(parsed.details)) {
-        displayDetails = 'VibeCoding';
-      }
-    }
-
-    // Store current state so popup can read it directly (always store real names for popup)
-    await chrome.storage.local.set({
-      orgnLastDetails: parsed.details,
-      orgnLastState: parsed.state
-    });
-
-    send({
-      type: 'setActivity',
-      activity: {
-        details: displayDetails,
-        state: displayState,
-        startTimestamp: sessionStart,
-        largeImageKey: 'orgn',
-        largeImageText: 'ORGN CDE',
-        instance: false
-      }
-    });
-  } catch (e) {
-    console.warn('[ORGN] Error checking tab:', e);
-  }
+  return (await chrome.storage.sync.get(['trackingPaused'])).trackingPaused === true;
 }
 
 async function getSessionStart() {
-  const stored = await chrome.storage.local.get(['orgnSessionStart']);
-  return stored.orgnSessionStart || null;
+  return (await chrome.storage.local.get(['orgnSessionStart'])).orgnSessionStart || null;
 }
 
-// Check if any ORGN tabs remain; clear session if none
-async function checkOrgnTabsExist() {
-  try {
-    const tabs = await chrome.tabs.query({});
-    const hasOrgn = tabs.some(tab => {
-      try { return tab.url && isOrgnDomain(new URL(tab.url).hostname); }
-      catch (e) { return false; }
-    });
-
-    if (!hasOrgn) {
-      lastOrgnState = null;
-      await chrome.storage.local.remove([
-        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState',
-        'orgnLastHeartbeat'
-      ]);
-      send({ type: 'clearActivity' });
-    }
-  } catch (e) { /* ignore */ }
+async function ensureSession() {
+  let start = await getSessionStart();
+  if (!start) {
+    start = Date.now();
+    await chrome.storage.local.set({ orgnSessionStart: start });
+  }
+  return start;
 }
 
-// ── Content Script State Handling ─────────────────────────────────
+// ── Content Script State (primary source) ──────────────────────────
 
 function handleContentScriptState(state, sender) {
   if (!state) return;
-
-  lastContentScriptState = {
-    ...state,
-    receivedAt: Date.now(),
-    tabId: sender?.tab?.id || null
-  };
-
-  // Store content script state for popup diagnostics
-  chrome.storage.local.set({
-    orgnContentScriptState: lastContentScriptState
-  });
-
-  // Also trigger an activity update with enriched data
+  lastContentScriptState = { ...state, receivedAt: Date.now(), tabId: sender?.tab?.id || null };
+  chrome.storage.local.set({ orgnContentScriptState: lastContentScriptState });
   updateActivityFromContentScript(state);
 }
 
@@ -304,348 +127,236 @@ async function updateActivityFromContentScript(state) {
 
     const computed = state.computed || {};
     const orgn = state.orgn || {};
-    const editor = state.editor || {};
-    const url = state.url || {};
-
-    // Build enriched details and state strings
     let details = '';
     let activityState = '';
-    let smallImageKey = null;
     let smallImageText = null;
 
-    // Determine primary activity
+    // Build Discord activity strings
     if (computed.activity === 'chat-trial') {
-      // /chat/{trialId} -- show: details = target, state = "Trial · Editing"
       details = computed.activityTarget || computed.trialName || 'Chat';
       activityState = 'Trial \u00B7 Editing';
     } else if (computed.activity === 'editing' && computed.activityTarget) {
       details = 'Editing ' + computed.activityTarget;
-      if (computed.language) {
-        smallImageText = computed.language;
-      }
+      smallImageText = computed.language || null;
     } else if (computed.activity === 'terminal') {
       details = 'Using Terminal';
     } else if (computed.activity === 'ide') {
-      details = 'In IDE';
-      if (orgn.ideType) {
-        details += ' (' + orgn.ideType + ')';
-      }
+      details = orgn.ideType ? 'In IDE (' + orgn.ideType + ')' : 'In IDE';
     } else if (computed.activity === 'tab' && computed.activityTarget) {
-      // Tab-based navigation (e.g. ?tab=tasks -> "Viewing Tasks")
       details = computed.activityTarget;
     } else {
-      // Browsing mode - use current view
-      const viewLabels = {
-        'dashboard': 'Viewing Dashboard',
-        'projects-list': 'Browsing Projects',
-        'project-detail': 'Viewing Project',
-        'project-tasks': 'Viewing Tasks',
-        'project-context': 'Viewing Context',
-        'project-explorer': 'Browsing Files',
-        'project-features': 'Viewing Features',
-        'project-security': 'Viewing Security',
-        'project-integrations': 'Viewing Integrations',
-        'project-usage': 'Viewing Usage',
-        'project-settings': 'Project Settings',
-        'new-project': 'Creating Project',
-        'chat': 'In Chat',
-        'chat-trial': 'Working on Trial',
-        'trial': 'Working on Trial',
-        'settings': 'In Settings',
-        'editor': 'In Editor',
-        'other': 'Browsing'
-      };
-      details = viewLabels[orgn.currentView] || 'Browsing';
+      details = VIEW_LABELS[orgn.currentView] || 'Browsing';
     }
 
-    // Build state string (project + trial context)
-    // Skip for chat-trial since we already built both details + state above
+    // Build state string (skip for chat-trial -- already set above)
     if (computed.activity !== 'chat-trial') {
       const parts = [];
-      if (computed.projectName) {
-        parts.push(computed.projectName);
-      }
-      if (computed.trialName && computed.trialName !== computed.projectName) {
-        parts.push(computed.trialName);
-      }
-      if (computed.gitBranch) {
-        parts.push('branch: ' + computed.gitBranch);
-      }
+      if (computed.projectName) parts.push(computed.projectName);
+      if (computed.trialName && computed.trialName !== computed.projectName) parts.push(computed.trialName);
+      if (computed.gitBranch) parts.push('branch: ' + computed.gitBranch);
       activityState = parts.join(' / ') || 'ORGN CDE';
     }
 
-    // Check if this represents an actual change
-    const stateKey = `${details}|${activityState}|${smallImageText || ''}`;
+    // Deduplicate
+    const stateKey = details + '|' + activityState + '|' + (smallImageText || '');
     if (stateKey === lastOrgnState && desktopAppConnected) return;
     lastOrgnState = stateKey;
 
-    // Get or create session
-    let sessionStart = await getSessionStart();
-    if (!sessionStart) {
-      sessionStart = Date.now();
-      await chrome.storage.local.set({ orgnSessionStart: sessionStart });
-    }
-
-    // Apply privacy settings
-    const privacySettings = await chrome.storage.sync.get(['hideNames']);
-    const hideNames = privacySettings.hideNames === true;
+    const sessionStart = await ensureSession();
+    const hideNames = (await chrome.storage.sync.get(['hideNames'])).hideNames === true;
 
     let displayDetails = details || 'ORGN CDE';
     let displayState = activityState || 'Active';
 
     if (hideNames) {
-      const safeLabels = [
-        'Dashboard', 'Browsing', 'Active', 'In IDE', 'In Editor',
-        'Using Terminal', 'Browsing Projects', 'In Settings',
-        'Viewing Dashboard', 'Working on Trial', 'Viewing Project'
-      ];
-      if (!safeLabels.some(l => displayDetails.startsWith(l))) {
-        displayDetails = 'VibeCoding';
-      }
+      const safe = ['Dashboard', 'Browsing', 'Active', 'In IDE', 'In Editor', 'Using Terminal',
+        'Browsing Projects', 'In Settings', 'Viewing Dashboard', 'Working on Trial', 'Viewing Project'];
+      if (!safe.some(l => displayDetails.startsWith(l))) displayDetails = 'VibeCoding';
       displayState = 'VibeCoding';
     }
 
-    // Store for popup (always real names)
-    await chrome.storage.local.set({
-      orgnLastDetails: details,
-      orgnLastState: activityState
-    });
+    await chrome.storage.local.set({ orgnLastDetails: details, orgnLastState: activityState });
 
-    // Build activity object
     const activity = {
-      details: displayDetails,
-      state: displayState,
-      startTimestamp: sessionStart,
-      largeImageKey: 'orgn',
-      largeImageText: 'ORGN CDE',
-      instance: false
+      details: displayDetails, state: displayState,
+      startTimestamp: sessionStart, largeImageKey: 'orgn', largeImageText: 'ORGN CDE', instance: false
     };
-
-    if (smallImageKey) {
-      activity.smallImageKey = smallImageKey;
-    }
-    if (smallImageText && !hideNames) {
-      activity.smallImageText = smallImageText;
-    }
-
-    send({
-      type: 'setActivity',
-      activity
-    });
+    if (smallImageText && !hideNames) activity.smallImageText = smallImageText;
+    send({ type: 'setActivity', activity });
   } catch (e) {
     console.warn('[ORGN] Error updating from content script:', e);
   }
 }
 
-// ── Event Listeners ──────────────────────────────────────────────
+// ── Tab-Title Fallback (secondary source) ──────────────────────────
+// Only used when content script has not sent state recently.
+
+function parseOrgnPage(title, url) {
+  const result = { details: '', state: '' };
+  if (!title) return result;
+
+  const clean = title
+    .replace(/\s*[\u00B7|]\s*Orgn CDE\s*$/i, '')
+    .replace(/\s+[-\u2013]\s+Orgn CDE\s*$/i, '')
+    .trim();
+
+  if (!clean || clean.toLowerCase() === 'orgn cde') return { details: 'Dashboard', state: 'Browsing' };
+
+  const trialMatch = clean.match(/^(.+?)\s+[-\u2013]\s+Trial$/i);
+  if (trialMatch) return { details: 'Working on Trial', state: trialMatch[1].trim() };
+
+  const sepMatch = clean.match(/^(.+?)\s+[-\u2013]\s+(.+)$/);
+  if (sepMatch) return { details: sepMatch[1].trim(), state: sepMatch[2].trim() };
+
+  try {
+    if (new URL(url).pathname.includes('/projects/')) return { details: clean, state: 'Viewing Project' };
+  } catch { /* ignore */ }
+
+  return { details: clean, state: 'Browsing' };
+}
+
+async function checkActiveTab() {
+  try {
+    if (await isTrackingPaused()) return;
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
+
+    let hostname;
+    try { hostname = new URL(tab.url).hostname; } catch { return; }
+    if (!isOrgnDomain(hostname)) return;
+
+    // Defer to content script if it sent state recently (< 30s)
+    if (lastContentScriptState) {
+      const age = Date.now() - (lastContentScriptState.receivedAt || 0);
+      if (age < 30000) return;
+    }
+
+    const parsed = parseOrgnPage(tab.title, tab.url);
+    const stateKey = parsed.details + '|' + parsed.state;
+    if (stateKey === lastOrgnState && desktopAppConnected) return;
+    lastOrgnState = stateKey;
+
+    const sessionStart = await ensureSession();
+    const hideNames = (await chrome.storage.sync.get(['hideNames'])).hideNames === true;
+
+    let displayDetails = parsed.details || 'ORGN CDE';
+    let displayState = parsed.state || 'Active';
+
+    if (hideNames) {
+      const safe = ['Dashboard', 'Projects', 'Browsing', 'Active', 'Working on Trial', 'Viewing Project', 'New Project'];
+      if (!safe.includes(parsed.state)) displayState = 'VibeCoding';
+      if (!safe.includes(parsed.details)) displayDetails = 'VibeCoding';
+    }
+
+    await chrome.storage.local.set({ orgnLastDetails: parsed.details, orgnLastState: parsed.state });
+    send({
+      type: 'setActivity',
+      activity: { details: displayDetails, state: displayState, startTimestamp: sessionStart, largeImageKey: 'orgn', largeImageText: 'ORGN CDE', instance: false }
+    });
+  } catch (e) {
+    console.warn('[ORGN] Error checking tab:', e);
+  }
+}
+
+// ── Tab Cleanup ────────────────────────────────────────────────────
+
+async function checkOrgnTabsExist() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    const hasOrgn = tabs.some(t => { try { return t.url && isOrgnDomain(new URL(t.url).hostname); } catch { return false; } });
+    if (!hasOrgn) {
+      lastOrgnState = null;
+      await chrome.storage.local.remove(['orgnSessionStart', 'orgnLastDetails', 'orgnLastState', 'orgnLastHeartbeat']);
+      send({ type: 'clearActivity' });
+    }
+  } catch { /* ignore */ }
+}
+
+// ── Event Listeners ────────────────────────────────────────────────
 
 chrome.tabs.onActivated?.addListener(() => checkActiveTab());
-
-chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
-  if ((changeInfo.status === 'complete' || changeInfo.title) && tab.active) {
-    checkActiveTab();
-  }
+chrome.tabs.onUpdated?.addListener((_id, info, tab) => {
+  if ((info.status === 'complete' || info.title) && tab.active) checkActiveTab();
 });
+chrome.tabs.onRemoved?.addListener(() => setTimeout(checkOrgnTabsExist, 500));
 
-chrome.tabs.onRemoved?.addListener(() => {
-  setTimeout(() => checkOrgnTabsExist(), 500);
-});
+// ── Message Router ─────────────────────────────────────────────────
 
-// Messages from popup and content scripts
 chrome.runtime.onMessage?.addListener((message, sender, sendResponse) => {
-  // Content script state updates (from content-script.js)
   if (message.type === 'contentScriptState') {
     handleContentScriptState(message.state, sender);
     sendResponse({ acknowledged: true });
     return true;
   }
-
-  // All other messages (popup, etc.)
-  handlePopupMessage(message).then(sendResponse);
-  return true; // keep channel open for async response
+  handleMessage(message).then(sendResponse);
+  return true;
 });
 
-async function handlePopupMessage(message) {
-  switch (message.type) {
+async function handleMessage(msg) {
+  switch (msg.type) {
     case 'getConnectionStatus': {
-      // Always try to connect first so status is fresh
       await ensureConnected();
-      const sessionStart = await getSessionStart();
-      return {
-        desktopAppConnected,
-        orgnSessionActive: !!sessionStart,
-        orgnSessionStart: sessionStart,
-        lastState: lastOrgnState
-      };
+      const start = await getSessionStart();
+      return { desktopAppConnected, orgnSessionActive: !!start, orgnSessionStart: start, lastState: lastOrgnState };
     }
 
     case 'getOrgnState': {
-      const sessionStart = await getSessionStart();
-      const stored = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
-      return {
-        connected: desktopAppConnected,
-        sessionStart,
-        details: stored.orgnLastDetails || null,
-        state: stored.orgnLastState || null
-      };
+      const start = await getSessionStart();
+      const s = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
+      return { connected: desktopAppConnected, sessionStart: start, details: s.orgnLastDetails || null, state: s.orgnLastState || null };
     }
 
     case 'clearActivity':
       lastOrgnState = null;
-      await chrome.storage.local.remove([
-        'orgnSessionStart', 'orgnLastDetails', 'orgnLastState',
-        'orgnLastHeartbeat'
-      ]);
+      await chrome.storage.local.remove(['orgnSessionStart', 'orgnLastDetails', 'orgnLastState', 'orgnLastHeartbeat']);
       send({ type: 'clearActivity' });
       return { success: true };
 
     case 'getContentScriptState': {
-      // Return the last state received from the content script
-      const csState = await chrome.storage.local.get(['orgnContentScriptState']);
-      return {
-        state: csState.orgnContentScriptState || null,
-        lastContentScriptState: lastContentScriptState
-      };
-    }
-
-    case 'requestContentScriptDiagnostics': {
-      // Ask the content script on the active tab for fresh diagnostics
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab?.id) {
-          return { error: 'No active tab found' };
-        }
-
-        // First: try to reach an already-running content script
-        const directResult = await new Promise((resolve) => {
-          chrome.tabs.sendMessage(tab.id, { type: 'getDiagnostics' }, (response) => {
-            if (chrome.runtime.lastError) {
-              resolve(null); // Content script not loaded yet
-            } else {
-              resolve(response);
-            }
-          });
-        });
-
-        if (directResult?.state) {
-          return directResult;
-        }
-
-        // Second: content script is not loaded -- inject it programmatically
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content-script.js']
-          });
-
-          // Give it a moment to initialize and extract
-          await new Promise(r => setTimeout(r, 800));
-
-          // Now try again
-          const retryResult = await new Promise((resolve) => {
-            chrome.tabs.sendMessage(tab.id, { type: 'getDiagnostics' }, (response) => {
-              if (chrome.runtime.lastError) {
-                resolve(null);
-              } else {
-                resolve(response);
-              }
-            });
-          });
-
-          if (retryResult?.state) {
-            return retryResult;
-          }
-        } catch (injectErr) {
-          // scripting.executeScript may fail if tab URL is not permitted
-          console.warn('[ORGN] Could not inject content script:', injectErr.message);
-        }
-
-        // Third: fall back to last stored state
-        const csStored = await chrome.storage.local.get(['orgnContentScriptState']);
-        if (csStored.orgnContentScriptState) {
-          return { state: csStored.orgnContentScriptState, fromStorage: true };
-        }
-
-        // Determine a helpful error message
-        let hostname = '';
-        try { hostname = new URL(tab.url || '').hostname; } catch (e) { /* ignore */ }
-        const onOrgn = isOrgnDomain(hostname);
-
-        if (!onOrgn) {
-          return { error: 'not_on_orgn', message: 'Current tab is not on an ORGN domain (' + hostname + ')' };
-        }
-        return { error: 'injection_failed', message: 'Content script could not be loaded. Try reloading the page.' };
-      } catch (e) {
-        return { error: 'exception', message: e.message };
-      }
+      const cs = await chrome.storage.local.get(['orgnContentScriptState']);
+      return { state: cs.orgnContentScriptState || null };
     }
 
     case 'injectContentScript': {
-      // Popup cannot call chrome.scripting directly (MV3 restriction).
-      // This handler lets the popup ask the background to inject it.
-      const targetTabId = message.tabId;
-      if (!targetTabId) {
-        return { success: false, error: 'No tabId provided' };
-      }
+      if (!msg.tabId) return { success: false, error: 'No tabId provided' };
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId: targetTabId },
-          files: ['content-script.js']
-        });
+        await chrome.scripting.executeScript({ target: { tabId: msg.tabId }, files: ['content-script.js'] });
         return { success: true };
-      } catch (e) {
-        return { success: false, error: e.message };
-      }
+      } catch (e) { return { success: false, error: e.message }; }
     }
 
     case 'forceRefreshState': {
-      // Force a fresh state by asking the content script directly,
-      // then running the enriched activity builder.
-      // Falls back to parseOrgnPage if content script is unreachable.
+      // Ask content script directly for fresh state, run through enriched pipeline
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
-          // Try to get fresh state from content script
           const csState = await new Promise((resolve) => {
-            chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (response) => {
+            chrome.tabs.sendMessage(tab.id, { type: 'requestState' }, (resp) => {
               if (chrome.runtime.lastError) resolve(null);
-              else resolve(response?.state || null);
+              else resolve(resp?.state || null);
             });
           });
-
           if (csState) {
-            // Run the enriched content script pipeline
             handleContentScriptState(csState, { tab });
-            // Read the freshly written values
-            const refreshed = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
-            return {
-              success: true,
-              details: refreshed.orgnLastDetails || null,
-              state: refreshed.orgnLastState || null
-            };
+            const r = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
+            return { success: true, details: r.orgnLastDetails || null, state: r.orgnLastState || null };
           }
         }
-      } catch (e) {
-        // Content script not available, fall through to tab-title parse
-      }
-
-      // Fallback: simple tab-title parse
+      } catch { /* fall through */ }
+      // Fallback to tab-title parse
       lastOrgnState = null;
       await checkActiveTab();
-      const refreshed = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
-      return {
-        success: true,
-        details: refreshed.orgnLastDetails || null,
-        state: refreshed.orgnLastState || null
-      };
+      const r = await chrome.storage.local.get(['orgnLastDetails', 'orgnLastState']);
+      return { success: true, details: r.orgnLastDetails || null, state: r.orgnLastState || null };
     }
 
     case 'resetSession': {
-      const newStart = Date.now();
+      const start = Date.now();
       lastOrgnState = null;
-      await chrome.storage.local.set({ orgnSessionStart: newStart });
+      await chrome.storage.local.set({ orgnSessionStart: start });
       checkActiveTab();
-      return { success: true, orgnSessionStart: newStart };
+      return { success: true, orgnSessionStart: start };
     }
 
     case 'pauseTracking':
@@ -656,70 +367,42 @@ async function handlePopupMessage(message) {
 
     case 'resumeTracking':
       await chrome.storage.sync.set({ trackingPaused: false });
-      lastOrgnState = null; // force re-send on next check
+      lastOrgnState = null;
       setBadge('', '#22c55e');
       checkActiveTab();
       return { success: true };
 
     default:
-      console.warn('[ORGN] Unknown popup message type:', message.type);
-      return { error: 'unknown_message_type', message: 'Unrecognized: ' + message.type };
+      return { error: 'unknown_type', message: msg.type };
   }
 }
 
-// ── Badge ────────────────────────────────────────────────────────
+// ── Badge ──────────────────────────────────────────────────────────
 
 async function setBadge(text, color) {
   try {
     await chrome.action.setBadgeText({ text });
     if (color) await chrome.action.setBadgeBackgroundColor({ color });
-  } catch (e) { /* ignore */ }
+  } catch { /* ignore */ }
 }
 
-// ── Stale Session Detection ──────────────────────────────────────
-// On service-worker (re)start, check if the previous session's heartbeat
-// is too old.  If the gap exceeds STALE_SESSION_THRESHOLD_MS the browser
-// (or extension) was likely fully closed, so we reset the timer.
+// ── Stale Session Detection ────────────────────────────────────────
 
 async function clearStaleSession() {
   try {
-    const stored = await chrome.storage.local.get([
-      'orgnLastHeartbeat',
-      'orgnSessionStart'
-    ]);
-
-    // Nothing to reset if there is no active session
-    if (!stored.orgnSessionStart) return;
-
-    const now = Date.now();
-    const lastHeartbeat = stored.orgnLastHeartbeat || 0;
-    const gap = now - lastHeartbeat;
-
-    if (lastHeartbeat > 0 && gap > STALE_SESSION_THRESHOLD_MS) {
-      // Session is stale – clear it so the timer starts fresh
+    const s = await chrome.storage.local.get(['orgnLastHeartbeat', 'orgnSessionStart']);
+    if (!s.orgnSessionStart) return;
+    const gap = Date.now() - (s.orgnLastHeartbeat || 0);
+    if (s.orgnLastHeartbeat > 0 && gap > STALE_SESSION_MS) {
       lastOrgnState = null;
-      await chrome.storage.local.remove([
-        'orgnSessionStart',
-        'orgnLastDetails',
-        'orgnLastState',
-        'orgnLastHeartbeat'
-      ]);
-      console.log(
-        '[ORGN] Stale session detected (gap: ' +
-          Math.round(gap / 1000) +
-          ' s). Timer reset.'
-      );
+      await chrome.storage.local.remove(['orgnSessionStart', 'orgnLastDetails', 'orgnLastState', 'orgnLastHeartbeat']);
     }
-
-    // Write a fresh heartbeat so the threshold starts counting from now
-    await chrome.storage.local.set({ orgnLastHeartbeat: now });
+    await chrome.storage.local.set({ orgnLastHeartbeat: Date.now() });
   } catch (e) {
-    console.warn('[ORGN] Error checking stale session:', e);
+    console.warn('[ORGN] Stale session check error:', e);
   }
 }
 
-// ── Startup ──────────────────────────────────────────────────────
+// ── Startup ────────────────────────────────────────────────────────
 
-clearStaleSession()
-  .then(() => ensureConnected())
-  .then(() => checkActiveTab());
+clearStaleSession().then(() => ensureConnected()).then(() => checkActiveTab());
